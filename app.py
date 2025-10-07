@@ -149,17 +149,6 @@ with st.sidebar:
     if latest_price is None:
         st.error(f"Data unavailable for {ticker_symbol}. Please choose another asset.")
         st.stop()
-        
-    st.markdown(f"### {info.get('longName', selected_company_name)}")
-
-    with st.expander("View Market Data", expanded=False):
-        price_change = latest_price - info.get('previousClose', latest_price)
-        st.metric("Last Market Price", f"₹{latest_price:.2f}", f"{price_change:.2f} (₹)")
-        col1, col2 = st.columns(2)
-        col1.metric("Previous Close", f"₹{info.get('previousClose', 0):.2f}")
-        col2.metric("Open", f"₹{info.get('open', 0):.2f}")
-        col1.metric("Day High", f"₹{info.get('dayHigh', 0):.2f}")
-        col2.metric("Day Low", f"₹{info.get('dayLow', 0):.2f}")
 
     st.header("🔧 Option Parameters")
     S = st.number_input("Underlying Price (S)", value=latest_price, format="%.2f")
@@ -176,6 +165,20 @@ with st.sidebar:
                   help=f"Annualized historical volatility is {hv:.2f}. Adjust based on your market view.")
 
 # --- Main Panel ---
+
+# --- Selected Company Data ---
+st.subheader(f"Market Data for {info.get('longName', selected_company_name)}")
+with st.container(border=True):
+    price_change = latest_price - info.get('previousClose', latest_price)
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Last Market Price", f"₹{latest_price:.2f}", f"{price_change:.2f} (₹)")
+    c2.metric("Previous Close", f"₹{info.get('previousClose', 0):.2f}")
+    c3.metric("Open", f"₹{info.get('open', 0):.2f}")
+    c4.metric("Day High", f"₹{info.get('dayHigh', 0):.2f}")
+    c5.metric("Day Low", f"₹{info.get('dayLow', 0):.2f}")
+
+st.divider()
+
 st.subheader("🧮 Binomial Model Pricing & Risk Analysis")
 binom_steps = 100
 binom_call = binomial_option_pricer(S, K, T, r, v, binom_steps, 'call')
