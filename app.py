@@ -93,7 +93,7 @@ def get_nifty50_tickers():
         "Hindalco Industries": "HINDALCO.NS", "Eicher Motors": "EICHERMOT.NS", "Coal India": "COALINDIA.NS", "Hero MotoCorp": "HEROMOTOCO.NS",
         "Divi's Laboratories": "DIVISLAB.NS", "UPL": "UPL.NS", "SBI Life Insurance": "SBILIFE.NS", "HDFC Life Insurance": "HDFCLIFE.NS",
         "Tech Mahindra": "TECHM.NS", "Apollo Hospitals": "APOLLOHOSP.NS", "ONGC": "ONGC.NS", "LTIMindtree": "LTIM.NS",
-        "Bajaj Auto": "BAJAJ-AUTO.NS", "Tata Consumer Products": "TATACONSUM.NS"
+        "Bajaj Auto": "BAJ-AUTO.NS", "Tata Consumer Products": "TATACONSUM.NS"
     }
 
 @st.cache_data(ttl=900) # Cache for 15 mins
@@ -204,6 +204,7 @@ st.markdown("##### A Professional Binomial Model for Financial Decision-Making")
 # --- Sidebar for User Inputs ---
 with st.sidebar:
     st.header("Market & Model Inputs")
+    st.markdown("Select an asset and define the option contract you wish to analyze.")
     nifty50_tickers = get_nifty50_tickers()
     selected_company_name = st.selectbox("Select Asset", list(nifty50_tickers.keys()))
     ticker_symbol = nifty50_tickers[selected_company_name]
@@ -215,24 +216,26 @@ with st.sidebar:
         st.stop()
 
     st.header("Option Strategy Parameters")
-    S = st.number_input("Current Asset Price (S)", value=latest_price, format="%.2f")
-    K = st.number_input("Strike Price (K)", value=round(latest_price, -2), step=100.0, format="%.2f")
+    S = st.number_input("Current Asset Price (S)", value=latest_price, format="%.2f", help="The current market price of the asset. Fetched live from Yahoo Finance.")
+    K = st.number_input("Strike Price (K)", value=round(latest_price, -2), step=100.0, format="%.2f", help="The price at which you have the right to buy (call) or sell (put) the asset.")
     
     today = date.today()
-    exp_date = st.date_input("Expiration Date", today + timedelta(days=30))
+    exp_date = st.date_input("Expiration Date", today + timedelta(days=30), help="The date the option contract expires.")
     T = (exp_date - today).days / 365.0
     st.write(f"Days to Expiry: {max(0, (exp_date - today).days)}")
     
     st.header("Market Assumptions")
-    r = st.slider("Risk-Free Interest Rate (%)", 0.0, 20.0, 7.1, 0.1, format="%.1f") / 100
+    st.markdown("Adjust these sliders to reflect your view on future market conditions.")
+    r = st.slider("Risk-Free Interest Rate (%)", 0.0, 20.0, 7.1, 0.1, format="%.1f", help="The return on a risk-free investment, like a government bond. Typically, higher rates increase call prices and decrease put prices.") / 100
     hv = calculate_historical_volatility(hist_data)
     v = st.slider("Implied Volatility (%)", 1.0, 200.0, hv * 100, 1.0, format="%.1f", 
-                  help=f"The asset's 1-year historical volatility is {hv:.1%}. Adjust based on your forecast.") / 100
+                  help=f"How much the asset's price is expected to fluctuate. Higher volatility increases the price of both calls and puts. The asset's 1-year historical volatility is {hv:.1%}.") / 100
 
 # --- Main Panel ---
 
 # --- Selected Company Data ---
 st.subheader(f"Live Market Snapshot: {info.get('longName', selected_company_name)}")
+st.markdown("This section provides a real-time summary of the selected asset's current trading day activity, giving context to the option pricing.")
 with st.container(border=True):
     price_change = latest_price - info.get('previousClose', latest_price)
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -245,7 +248,7 @@ with st.container(border=True):
 st.divider()
 
 st.subheader("Binomial Model Pricing & Risk Analysis")
-st.markdown("The core of the dashboard, providing the theoretical option price based on the Binomial model and the critical risk metrics (Greeks).")
+st.markdown("The core of the dashboard. This section calculates the theoretical 'fair value' of the option based on the Binomial model and quantifies its key risk exposures through the Greeks.")
 binom_steps = 100
 binom_call = binomial_option_pricer(S, K, T, r, v, binom_steps, 'call')
 binom_put = binomial_option_pricer(S, K, T, r, v, binom_steps, 'put')
@@ -255,47 +258,49 @@ with col1:
     with st.container(border=True):
         st.markdown("#### Call Option (Right to Buy)")
         st.metric(f"Theoretical Option Price", f"₹{binom_call.get('price', 0):.2f}")
+        st.caption("This is the model's calculated fair value. Compare it to the market price to identify potential trading opportunities.")
         st.markdown("---")
         st.markdown("**Key Risk Metrics (The Greeks)**")
         g1, g2 = st.columns(2)
         g1.metric("Delta", f"{binom_call.get('delta', 0):.4f}")
-        g1.caption("Price sensitivity to a ₹1 change in the underlying asset.")
+        g1.caption("The estimated change in option price for a ₹1 move in the asset.")
         g2.metric("Gamma", f"{binom_call.get('gamma', 0):.4f}")
-        g2.caption("Sensitivity of Delta to changes in the underlying asset.")
+        g2.caption("How much Delta is expected to change for a ₹1 move in the asset.")
         g1.metric("Theta (per day)", f"₹{binom_call.get('theta', 0):.2f}")
-        g1.caption("Daily value decay of the option due to time passing.")
+        g1.caption("The value the option loses each day due to the passage of time.")
         g2.metric("Vega (per 1% vol)", f"₹{binom_call.get('vega', 0):.2f}")
-        g2.caption("Price sensitivity to a 1% change in volatility.")
+        g2.caption("The change in option price for every 1% change in volatility.")
         g1.metric("Rho (per 1% rate)", f"₹{binom_call.get('rho', 0):.2f}")
-        g1.caption("Price sensitivity to a 1% change in interest rates.")
+        g1.caption("The change in option price for every 1% change in interest rates.")
 
 with col2:
     with st.container(border=True):
         st.markdown("#### Put Option (Right to Sell)")
         st.metric(f"Theoretical Option Price", f"₹{binom_put.get('price', 0):.2f}")
+        st.caption("This is the model's calculated fair value. Compare it to the market price to identify potential trading opportunities.")
         st.markdown("---")
         st.markdown("**Key Risk Metrics (The Greeks)**")
         g1, g2 = st.columns(2)
         g1.metric("Delta", f"{binom_put.get('delta', 0):.4f}")
-        g1.caption("Price sensitivity to a ₹1 change in the underlying asset.")
+        g1.caption("The estimated change in option price for a ₹1 move in the asset.")
         g2.metric("Gamma", f"{binom_put.get('gamma', 0):.4f}")
-        g2.caption("Sensitivity of Delta to changes in the underlying asset.")
+        g2.caption("How much Delta is expected to change for a ₹1 move in the asset.")
         g1.metric("Theta (per day)", f"₹{binom_put.get('theta', 0):.2f}")
-        g1.caption("Daily value decay of the option due to time passing.")
+        g1.caption("The value the option loses each day due to the passage of time.")
         g2.metric("Vega (per 1% vol)", f"₹{binom_put.get('vega', 0):.2f}")
-        g2.caption("Price sensitivity to a 1% change in volatility.")
+        g2.caption("The change in option price for every 1% change in volatility.")
         g1.metric("Rho (per 1% rate)", f"₹{binom_put.get('rho', 0):.2f}")
-        g1.caption("Price sensitivity to a 1% change in interest rates.")
+        g1.caption("The change in option price for every 1% change in interest rates.")
 
 st.divider()
 
 st.subheader("Visual Analysis Suite")
-st.markdown("Interactive charts to help you understand the potential outcomes and key drivers of the option's value.")
+st.markdown("These interactive charts help you visualize the risks and rewards of your option strategy, providing a deeper understanding of the potential outcomes.")
 col1, col2 = st.columns(2)
 with col1:
     with st.container(border=True):
         st.markdown("#### Strategy Payoff at Expiration")
-        st.caption("This chart visualizes your potential profit or loss. The point where the line crosses zero is your breakeven price.")
+        st.caption("This chart visualizes your potential profit or loss at the moment the option expires. The point where the line crosses zero is your breakeven price, and the lowest point is your maximum possible loss.")
         option_type_payoff = st.radio("Select Option for Payoff", ('Call', 'Put'), horizontal=True)
         premium = binom_call.get('price', 0) if option_type_payoff == 'Call' else binom_put.get('price', 0)
         price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
@@ -310,17 +315,17 @@ with col1:
 with col2:
     with st.container(border=True):
         st.markdown(f"#### Price History & Volatility")
-        st.caption("This chart shows the asset's price swings over the last year. Larger swings result in higher historical volatility.")
+        st.caption("This chart shows the asset's price movements over the last year. Wider and more frequent swings lead to a higher historical volatility, which generally makes options more expensive.")
         st.metric(f"1-Year Historical Volatility", f"{hv:.2%}")
         st.line_chart(hist_data['Close'], use_container_width=True)
         
 st.divider()
 
 st.subheader("Binomial Tree Construction")
-st.markdown("This visualizes how the model calculates the option price by building a tree of potential future asset prices and working backward.")
+st.markdown("This visualizes the core logic of the Binomial model. It builds a tree of potential future asset prices and then works backward from expiration to find the option's value today.")
 with st.container(border=True):
     c1, c2 = st.columns([1,2])
-    N_viz = c1.slider("Steps to Visualize", 2, 8, 4, 1, help="Select the number of time steps for the tree. Fewer steps are easier to visualize.")
+    N_viz = c1.slider("Steps to Visualize", 2, 8, 4, 1, help="Select the number of time steps for the tree. Fewer steps are easier to visualize, but more steps provide a more accurate price.")
     option_type_viz = c2.radio("Option Type to Visualize", ('Call', 'Put'), horizontal=True, key="viz_choice")
     
     if T > 0:
