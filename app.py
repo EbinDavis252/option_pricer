@@ -5,6 +5,26 @@ import pandas as pd
 from datetime import date, timedelta
 from streamlit_agraph import agraph, Node, Edge, Config
 
+# --- UI Styling ---
+def add_custom_css():
+    st.markdown("""
+    <style>
+    /* Main app background */
+    [data-testid="stAppViewContainer"] {
+        background-image: linear-gradient(to right top, #e6f2ff, #edf5ff, #f3f8ff, #f9fbff, #ffffff);
+        background-size: cover;
+    }
+    /* Sidebar background */
+    [data-testid="stSidebar"] {
+        background-color: #f1f8ff;
+    }
+    /* Remove header background */
+    [data-testid="stHeader"] {
+        background-color: rgba(0,0,0,0);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- Model Implementations ---
 
 # Binomial Option Pricing Model with Greeks
@@ -122,7 +142,7 @@ def create_tree_graph_elements(asset_tree, option_tree):
             
             label = f"Asset: ₹{asset_price:.2f}\nOption: ₹{option_price:.2f}"
             nodes.append(Node(id=node_id, label=label, shape="box", 
-                              color="#e6f2ff", font={'color': '#004085', 'size': 18}))
+                              color="#d1e4f6", font={'color': '#003366', 'size': 18}))
 
             if i < n_steps:
                 up_node_id = f'T{i+1}N{j}'
@@ -132,14 +152,17 @@ def create_tree_graph_elements(asset_tree, option_tree):
     return nodes, edges
 
 # --- Streamlit UI ---
-st.set_page_config(layout="wide", page_title="Option Edge", page_icon="💡")
+st.set_page_config(layout="wide", page_title="Option Edge")
 
-st.title("💡Option Edge")
+# Apply the custom CSS
+add_custom_css()
+
+st.title("Option Edge")
 st.markdown("##### A Professional Binomial Model for Financial Decision-Making")
 
 # --- Sidebar for User Inputs ---
 with st.sidebar:
-    st.header("⚙️ Market & Model Inputs")
+    st.header("Market & Model Inputs")
     nifty50_tickers = get_nifty50_tickers()
     selected_company_name = st.selectbox("Select Asset", list(nifty50_tickers.keys()))
     ticker_symbol = nifty50_tickers[selected_company_name]
@@ -150,7 +173,7 @@ with st.sidebar:
         st.error(f"Data unavailable for {ticker_symbol}. Please choose another asset.")
         st.stop()
 
-    st.header("🔧 Option Strategy Parameters")
+    st.header("Option Strategy Parameters")
     S = st.number_input("Current Asset Price (S)", value=latest_price, format="%.2f")
     K = st.number_input("Strike Price (K)", value=round(latest_price, -2), step=100.0, format="%.2f")
     
@@ -159,7 +182,7 @@ with st.sidebar:
     T = (exp_date - today).days / 365.0
     st.write(f"Days to Expiry: {max(0, (exp_date - today).days)}")
     
-    st.header("📈 Market Assumptions")
+    st.header("Market Assumptions")
     r = st.slider("Risk-Free Interest Rate (%)", 0.0, 20.0, 7.1, 0.1, format="%.1f") / 100
     hv = calculate_historical_volatility(hist_data)
     v = st.slider("Implied Volatility (%)", 1.0, 200.0, hv * 100, 1.0, format="%.1f", 
@@ -180,7 +203,7 @@ with st.container(border=True):
 
 st.divider()
 
-st.subheader("🧮 Binomial Model Pricing & Risk Analysis")
+st.subheader("Binomial Model Pricing & Risk Analysis")
 st.markdown("The core of the dashboard, providing the theoretical option price based on the Binomial model and the critical risk metrics (Greeks).")
 binom_steps = 100
 binom_call = binomial_option_pricer(S, K, T, r, v, binom_steps, 'call')
@@ -225,7 +248,7 @@ with col2:
 
 st.divider()
 
-st.subheader("📊 Visual Analysis Suite")
+st.subheader("Visual Analysis Suite")
 st.markdown("Interactive charts to help you understand the potential outcomes and key drivers of the option's value.")
 col1, col2 = st.columns(2)
 with col1:
@@ -252,7 +275,7 @@ with col2:
         
 st.divider()
 
-st.subheader("🌳 Binomial Tree Construction")
+st.subheader("Binomial Tree Construction")
 st.markdown("This visualizes how the model calculates the option price by building a tree of potential future asset prices and working backward.")
 with st.container(border=True):
     c1, c2 = st.columns([1,2])
@@ -277,9 +300,8 @@ with st.container(border=True):
                         physics=False, 
                         hierarchical={'enabled': True, 
                                       'sortMethod': 'directed',
-                                      'nodeSpacing': 200,
-                                      'treeSpacing': 250,
-                                      'levelSeparation': 250}) # Removed 'direction' to default to top-bottom
+                                      'levelSeparation': 300,
+                                      'direction': 'LR'})
         
         agraph(nodes=nodes, edges=edges, config=config)
 
