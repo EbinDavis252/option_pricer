@@ -142,22 +142,19 @@ with st.sidebar:
                   help=f"Annualized historical volatility is {hv:.2f}. Adjust based on your market view.")
 
 
-# --- Main Panel with Tabs ---
-tab1, tab2, tab3 = st.tabs(["🧮 Option Pricer & Greeks", "📊 Volatility Analysis", "📈 Payoff Diagram"])
+# --- Main Panel with Integrated Layout ---
 
-# TAB 1: Option Pricer
-with tab1:
-    st.header("Option Price Comparison")
-    
-    # Calculate prices from both models
-    bsm_call = black_scholes_pricer(S, K, T, r, v, 'call')
-    bsm_put = black_scholes_pricer(S, K, T, r, v, 'put')
-    binom_call = binomial_option_pricer(S, K, T, r, v, 100, 'call')
-    binom_put = binomial_option_pricer(S, K, T, r, v, 100, 'put')
+# --- 1. Key Pricing Results ---
+st.subheader("🧮 Option Price Comparison")
+bsm_call = black_scholes_pricer(S, K, T, r, v, 'call')
+bsm_put = black_scholes_pricer(S, K, T, r, v, 'put')
+binom_call = binomial_option_pricer(S, K, T, r, v, 100, 'call')
+binom_put = binomial_option_pricer(S, K, T, r, v, 100, 'put')
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Call Option")
+col1, col2 = st.columns(2)
+with col1:
+    with st.container(border=True):
+        st.markdown("#### Call Option")
         st.metric("Black-Scholes Price", f"₹{bsm_call['price']:.2f}")
         st.metric("Binomial Tree Price", f"₹{binom_call.get('price', 0):.2f}", 
                   delta=f"{binom_call.get('price', 0) - bsm_call['price']:.2f} vs BSM", delta_color="off")
@@ -171,8 +168,9 @@ with tab1:
             - **Rho:** `₹{bsm_call['rho']:.2f}` (Price change for 1% change in interest rate)
             """)
 
-    with col2:
-        st.subheader("Put Option")
+with col2:
+    with st.container(border=True):
+        st.markdown("#### Put Option")
         st.metric("Black-Scholes Price", f"₹{bsm_put['price']:.2f}")
         st.metric("Binomial Tree Price", f"₹{binom_put.get('price', 0):.2f}", 
                   delta=f"{binom_put.get('price', 0) - bsm_put['price']:.2f} vs BSM", delta_color="off")
@@ -186,47 +184,41 @@ with tab1:
             - **Rho:** `₹{bsm_put['rho']:.2f}`
             """)
 
-# TAB 2: Volatility Analysis
-with tab2:
-    st.header(f"Volatility Analysis for {selected_company_name}")
-    st.metric("1-Year Annualized Historical Volatility", f"{hv:.2%}")
-    st.markdown("""
-    Historical Volatility measures the degree of price variation of the asset over the past year. 
-    It is a key input for option pricing, as higher volatility generally leads to higher option premiums.
-    """)
-    st.subheader("Historical Closing Price (1 Year)")
-    st.line_chart(hist_data['Close'])
+st.divider()
 
-# TAB 3: Payoff Diagram
-with tab3:
-    st.header("Strategy Payoff at Expiration")
-    option_type_payoff = st.radio("Select Option Type for Payoff", ('Call', 'Put'), horizontal=True)
-    
-    # Use BSM price as the premium paid for the diagram
-    premium = bsm_call['price'] if option_type_payoff == 'Call' else bsm_put['price']
-    
-    price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
-    
-    if option_type_payoff == 'Call':
-        payoff = np.maximum(price_at_exp - K, 0) - premium
-        breakeven = K + premium
-    else: # Put
-        payoff = np.maximum(K - price_at_exp, 0) - premium
-        breakeven = K - premium
+# --- 2. Visual Analysis ---
+st.subheader("📊 Visual Analysis")
+col1, col2 = st.columns(2)
+
+with col1:
+    with st.container(border=True):
+        st.markdown("#### Strategy Payoff at Expiration")
+        option_type_payoff = st.radio("Select Option", ('Call', 'Put'), horizontal=True, key="payoff_choice")
         
-    payoff_df = pd.DataFrame({
-        'Underlying Price at Expiration': price_at_exp,
-        'Profit / Loss': payoff
-    }).set_index('Underlying Price at Expiration')
-    
-    st.line_chart(payoff_df)
-    
-    st.subheader("Payoff Profile Summary")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Breakeven Price", f"₹{breakeven:.2f}")
-    if option_type_payoff == 'Call':
-        col2.metric("Maximum Loss", f"₹{-premium:.2f} (Premium Paid)")
-        col3.metric("Maximum Profit", "Unlimited")
-    else:
-        col2.metric("Maximum Loss", f"₹{-premium:.2f} (Premium Paid)")
-        col3.metric("Maximum Profit", f"₹{K - premium:.2f}" if K > premium else "₹0.00")
+        premium = bsm_call['price'] if option_type_payoff == 'Call' else bsm_put['price']
+        price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
+        
+        if option_type_payoff == 'Call':
+            payoff = np.maximum(price_at_exp - K, 0) - premium
+            breakeven = K + premium
+        else: # Put
+            payoff = np.maximum(K - price_at_exp, 0) - premium
+            breakeven = K - premium
+            
+        payoff_df = pd.DataFrame({'Profit / Loss': payoff}, index=price_at_exp)
+        st.line_chart(payoff_df)
+        
+        c1, c2 = st.columns(2)
+        c1.metric("Breakeven Price", f"₹{breakeven:.2f}")
+        if option_type_payoff == 'Call':
+            c2.metric("Max Loss", f"₹{-premium:.2f}")
+        else:
+            c2.metric("Max Profit", f"₹{K - premium:.2f}" if K > premium else "₹0.00")
+
+with col2:
+    with st.container(border=True):
+        st.markdown(f"#### Volatility Analysis for {selected_company_name}")
+        st.metric("1-Year Historical Volatility", f"{hv:.2%}")
+        st.line_chart(hist_data['Close'], use_container_width=True)
+        st.caption("Historical volatility is calculated from the standard deviation of logarithmic returns of the asset's price over the last year.")
+
