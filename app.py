@@ -2,93 +2,97 @@ import streamlit as st
 import numpy as np
 import yfinance as yf
 import pandas as pd
-from scipy.stats import norm
 from datetime import date, timedelta
 
 # --- Model Implementations ---
 
-# 1. Black-Scholes-Merton Model
-def black_scholes_pricer(S, K, T, r, v, option_type='call'):
+# Binomial Option Pricing Model with Greeks
+def binomial_option_pricer(S, K, T, r, v, N, option_type='call'):
     """
-    Calculates European option price and Greeks using the Black-Scholes model.
+    Calculates European option price and Greeks using the Binomial Tree model.
     """
-    if T <= 0: # Handle expired options
+    # Base case for expired or invalid time
+    if T <= 0:
         price = max(0, S - K) if option_type == 'call' else max(0, K - S)
         return {'price': price, 'delta': 1 if S > K else 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0}
 
-    d1 = (np.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * np.sqrt(T))
-    d2 = d1 - v * np.sqrt(T)
-    
-    if option_type == 'call':
-        price = (S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
-        delta = norm.cdf(d1)
-        rho = K * T * np.exp(-r * T) * norm.cdf(d2)
-    else: # put
-        price = (K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1))
-        delta = norm.cdf(d1) - 1
-        rho = -K * T * np.exp(-r * T) * norm.cdf(-d2)
-
-    gamma = norm.pdf(d1) / (S * v * np.sqrt(T))
-    vega = S * norm.pdf(d1) * np.sqrt(T)
-    theta = -(S * norm.pdf(d1) * v) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * (norm.cdf(d2) if option_type == 'call' else -norm.cdf(-d2))
-    
-    return {
-        'price': price, 'delta': delta, 'gamma': gamma,
-        'theta': theta / 365, 'vega': vega / 100, 'rho': rho / 100
-    }
-
-# 2. Binomial Option Pricing Model
-def binomial_option_pricer(S, K, T, r, v, N, option_type='call'):
-    if T <= 0:
-        price = max(0, S - K) if option_type == 'call' else max(0, K - S)
-        return {'price': price}
+    # Helper function for Vega/Rho calculation to avoid re-calculating greeks recursively
+    def _pricer_just_price(S_h, K_h, T_h, r_h, v_h, N_h, option_type_h):
+        if T_h <= 0: return max(0, S_h - K_h) if option_type_h == 'call' else max(0, K_h - S_h)
+        dt_h = T_h / N_h
+        u_h = np.exp(v_h * np.sqrt(dt_h))
+        d_h = 1 / u_h
+        p_h = (np.exp(r_h * dt_h) - d_h) / (u_h - d_h)
+        if not (0 < p_h < 1): return np.nan
         
+        asset_prices_h = S_h * d_h**np.arange(N_h, -1, -1) * u_h**np.arange(0, N_h + 1, 1)
+        option_values_h = np.maximum(0, asset_prices_h - K_h) if option_type_h == 'call' else np.maximum(0, K_h - asset_prices_h)
+        
+        for i in range(N_h - 1, -1, -1):
+            option_values_h = np.exp(-r_h * dt_h) * (p_h * option_values_h[1:] + (1 - p_h) * option_values_h[:-1])
+        return option_values_h[0]
+
+    # Main pricing logic
     dt = T / N
     u = np.exp(v * np.sqrt(dt))
     d = 1 / u
     p = (np.exp(r * dt) - d) / (u - d)
 
     if not (0 < p < 1):
-        return {'price': np.nan}
+        return {'price': np.nan, 'delta': np.nan, 'gamma': np.nan, 'theta': np.nan, 'vega': np.nan, 'rho': np.nan}
 
-    # Initialize asset prices at maturity
-    asset_prices = S * d**np.arange(N, -1, -1) * u**np.arange(0, N + 1, 1)
+    # Build the full tree to get access to early nodes for greeks
+    asset_tree, option_tree = generate_binomial_tree_data(S, K, T, r, v, N, option_type)
     
-    if option_type == 'call':
-        option_values = np.maximum(0, asset_prices - K)
-    else: # put
-        option_values = np.maximum(0, K - asset_prices)
+    # --- Greeks Calculation ---
+    price = option_tree[0, 0]
 
-    # Step back through the tree
-    for i in range(N - 1, -1, -1):
-        option_values = np.exp(-r * dt) * (p * option_values[1:] + (1 - p) * option_values[:-1])
-    
-    return {'price': option_values[0]}
+    # Delta: Change in option price for a $1 change in the underlying
+    delta = (option_tree[0, 1] - option_tree[1, 1]) / (asset_tree[0, 1] - asset_tree[1, 1])
+
+    # Gamma: Change in delta for a $1 change in the underlying
+    delta_up = (option_tree[0, 2] - option_tree[1, 2]) / (asset_tree[0, 2] - asset_tree[1, 2])
+    delta_down = (option_tree[1, 2] - option_tree[2, 2]) / (asset_tree[1, 2] - asset_tree[2, 2])
+    gamma = (delta_up - delta_down) / (0.5 * (asset_tree[0, 2] - asset_tree[2, 2]))
+
+    # Theta: Time decay of the option price per day
+    theta = (option_tree[1, 1] - option_tree[0, 0]) / dt
+
+    # Vega: Change in option price for a 1% change in volatility
+    vega_price_up = _pricer_just_price(S, K, T, r, v + 0.01, N, option_type)
+    vega = (vega_price_up - price)
+
+    # Rho: Change in option price for a 1% change in the risk-free rate
+    rho_price_up = _pricer_just_price(S, K, T, r + 0.01, v, N, option_type)
+    rho = (rho_price_up - price)
+
+    return {
+        'price': price, 'delta': delta, 'gamma': gamma,
+        'theta': theta / 365, 'vega': vega, 'rho': rho
+    }
 
 
 # --- Data and Helper Functions ---
 
 @st.cache_data
 def get_nifty50_tickers():
-    # List of Nifty 50 stocks with their Yahoo Finance tickers
     return {
-        "NIFTY 50 Index": "^NSEI",
-        "Reliance Industries": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "ICICI Bank": "ICICIBANK.NS",
-        "Infosys": "INFY.NS", "Tata Consultancy Services": "TCS.NS", "Hindustan Unilever": "HINDUNILVR.NS",
-        "ITC": "ITC.NS", "Larsen & Toubro": "LT.NS", "Bajaj Finance": "BAJFINANCE.NS",
-        "State Bank of India": "SBIN.NS", "Bharti Airtel": "BHARTIARTL.NS", "Kotak Mahindra Bank": "KOTAKBANK.NS",
-        "Axis Bank": "AXISBANK.NS", "NTPC": "NTPC.NS", "Maruti Suzuki": "MARUTI.NS",
-        "Sun Pharmaceutical": "SUNPHARMA.NS", "Tata Motors": "TATAMOTORS.NS", "Tata Steel": "TATASTEEL.NS",
-        "Power Grid Corporation": "POWERGRID.NS", "Titan Company": "TITAN.NS", "Asian Paints": "ASIANPAINT.NS",
-        "UltraTech Cement": "ULTRACEMCO.NS", "Wipro": "WIPRO.NS", "Adani Enterprises": "ADANIENT.NS",
-        "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJAJFINSV.NS",
-        "HCL Technologies": "HCLTECH.NS", "Nestle India": "NESTLEIND.NS", "Grasim Industries": "GRASIM.NS",
-        "Cipla": "CIPLA.NS", "Dr. Reddy's Laboratories": "DRREDDY.NS", "Adani Ports": "ADANIPORTS.NS",
-        "Britannia Industries": "BRITANNIA.NS", "Hindalco Industries": "HINDALCO.NS", "Eicher Motors": "EICHERMOT.NS",
-        "Coal India": "COALINDIA.NS", "Hero MotoCorp": "HEROMOTOCO.NS", "Divi's Laboratories": "DIVISLAB.NS",
-        "UPL": "UPL.NS", "SBI Life Insurance": "SBILIFE.NS", "HDFC Life Insurance": "HDFCLIFE.NS",
-        "Tech Mahindra": "TECHM.NS", "Apollo Hospitals": "APOLLOHOSP.NS", "ONGC": "ONGC.NS",
-        "LTIMindtree": "LTIM.NS", "Bajaj Auto": "BAJAJ-AUTO.NS", "Tata Consumer Products": "TATACONSUM.NS"
+        "NIFTY 50 Index": "^NSEI", "Reliance Industries": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", 
+        "ICICI Bank": "ICICIBANK.NS", "Infosys": "INFY.NS", "Tata Consultancy Services": "TCS.NS", 
+        "Hindustan Unilever": "HINDUNILVR.NS", "ITC": "ITC.NS", "Larsen & Toubro": "LT.NS", 
+        "Bajaj Finance": "BAJFINANCE.NS", "State Bank of India": "SBIN.NS", "Bharti Airtel": "BHARTIARTL.NS", 
+        "Kotak Mahindra Bank": "KOTAKBANK.NS", "Axis Bank": "AXISBANK.NS", "NTPC": "NTPC.NS", 
+        "Maruti Suzuki": "MARUTI.NS", "Sun Pharmaceutical": "SUNPHARMA.NS", "Tata Motors": "TATAMOTORS.NS", 
+        "Tata Steel": "TATASTEEL.NS", "Power Grid Corporation": "POWERGRID.NS", "Titan Company": "TITAN.NS", 
+        "Asian Paints": "ASIANPAINT.NS", "UltraTech Cement": "ULTRACEMCO.NS", "Wipro": "WIPRO.NS", 
+        "Adani Enterprises": "ADANIENT.NS", "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", 
+        "Bajaj Finserv": "BAJAJFINSV.NS", "HCL Technologies": "HCLTECH.NS", "Nestle India": "NESTLEIND.NS", 
+        "Grasim Industries": "GRASIM.NS", "Cipla": "CIPLA.NS", "Dr. Reddy's Laboratories": "DRREDDY.NS", 
+        "Adani Ports": "ADANIPORTS.NS", "Britannia Industries": "BRITANNIA.NS", "Hindalco Industries": "HINDALCO.NS", 
+        "Eicher Motors": "EICHERMOT.NS", "Coal India": "COALINDIA.NS", "Hero MotoCorp": "HEROMOTOCO.NS", 
+        "Divi's Laboratories": "DIVISLAB.NS", "UPL": "UPL.NS", "SBI Life Insurance": "SBILIFE.NS", 
+        "HDFC Life Insurance": "HDFCLIFE.NS", "Tech Mahindra": "TECHM.NS", "Apollo Hospitals": "APOLLOHOSP.NS", 
+        "ONGC": "ONGC.NS", "LTIMindtree": "LTIM.NS", "Bajaj Auto": "BAJAJ-AUTO.NS", "Tata Consumer Products": "TATACONSUM.NS"
     }
 
 @st.cache_data(ttl=900) # Cache data for 15 minutes
@@ -107,7 +111,6 @@ def calculate_historical_volatility(hist_data):
     return np.std(log_returns) * np.sqrt(252) # 252 trading days in a year
 
 def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
-    """Generates the full data for asset and option price trees."""
     dt = T / N
     u = np.exp(v * np.sqrt(dt))
     d = 1 / u
@@ -121,10 +124,7 @@ def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
             asset_tree[j, i] = S * (u ** (i - j)) * (d ** j)
 
     for j in range(N + 1):
-        if option_type == 'call':
-            option_tree[j, N] = max(0, asset_tree[j, N] - K)
-        else:
-            option_tree[j, N] = max(0, K - asset_tree[j, N])
+        option_tree[j, N] = max(0, asset_tree[j, N] - K) if option_type == 'call' else max(0, K - asset_tree[j, N])
     
     for i in range(N - 1, -1, -1):
         for j in range(i + 1):
@@ -133,9 +133,9 @@ def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
     return asset_tree, option_tree
 
 # --- Streamlit UI ---
-st.set_page_config(layout="wide", page_title="Financial Decision-Making Dashboard")
-st.title("📈 Financial Decision-Making Dashboard")
-st.markdown("An advanced tool for option pricing, volatility analysis, and strategy visualization.")
+st.set_page_config(layout="wide", page_title="Binomial Model Dashboard")
+st.title("🌳 Binomial Model Decision-Making Dashboard")
+st.markdown("An advanced tool for option pricing and analysis focused exclusively on the Binomial Tree model.")
 
 # --- Sidebar for User Inputs ---
 with st.sidebar:
@@ -170,43 +170,38 @@ with st.sidebar:
 # --- Main Panel with Integrated Layout ---
 
 # --- 1. Key Pricing Results ---
-st.subheader("🧮 Option Price Comparison")
-bsm_call = black_scholes_pricer(S, K, T, r, v, 'call')
-bsm_put = black_scholes_pricer(S, K, T, r, v, 'put')
-binom_call = binomial_option_pricer(S, K, T, r, v, 100, 'call')
-binom_put = binomial_option_pricer(S, K, T, r, v, 100, 'put')
+st.subheader("🧮 Binomial Model Option Pricing")
+binom_steps = 100 # Steps for main calculation
+binom_call = binomial_option_pricer(S, K, T, r, v, binom_steps, 'call')
+binom_put = binomial_option_pricer(S, K, T, r, v, binom_steps, 'put')
 
 col1, col2 = st.columns(2)
 with col1:
     with st.container(border=True):
         st.markdown("#### Call Option")
-        st.metric("Black-Scholes Price", f"₹{bsm_call['price']:.2f}")
-        st.metric("Binomial Tree Price (100 steps)", f"₹{binom_call.get('price', 0):.2f}", 
-                  delta=f"{binom_call.get('price', 0) - bsm_call['price']:.2f} vs BSM", delta_color="off")
+        st.metric(f"Binomial Tree Price ({binom_steps} steps)", f"₹{binom_call.get('price', 0):.2f}")
         
-        with st.expander("View Greeks (Industry Standard: Black-Scholes)"):
+        with st.expander("View Greeks (Binomial Model Approximation)"):
             st.markdown(f"""
-            - **Delta:** `{bsm_call['delta']:.4f}`
-            - **Gamma:** `{bsm_call['gamma']:.4f}`
-            - **Theta:** `₹{bsm_call['theta']:.2f}` (per day)
-            - **Vega:** `₹{bsm_call['vega']:.2f}` (per 1% vol change)
-            - **Rho:** `₹{bsm_call['rho']:.2f}` (per 1% rate change)
+            - **Delta:** `{binom_call['delta']:.4f}`
+            - **Gamma:** `{binom_call['gamma']:.4f}`
+            - **Theta:** `₹{binom_call['theta']:.2f}` (per day)
+            - **Vega:** `₹{binom_call['vega']:.2f}` (per 1% vol change)
+            - **Rho:** `₹{binom_call['rho']:.2f}` (per 1% rate change)
             """)
 
 with col2:
     with st.container(border=True):
         st.markdown("#### Put Option")
-        st.metric("Black-Scholes Price", f"₹{bsm_put['price']:.2f}")
-        st.metric("Binomial Tree Price (100 steps)", f"₹{binom_put.get('price', 0):.2f}", 
-                  delta=f"{binom_put.get('price', 0) - bsm_put['price']:.2f} vs BSM", delta_color="off")
+        st.metric(f"Binomial Tree Price ({binom_steps} steps)", f"₹{binom_put.get('price', 0):.2f}")
 
-        with st.expander("View Greeks (Industry Standard: Black-Scholes)"):
+        with st.expander("View Greeks (Binomial Model Approximation)"):
             st.markdown(f"""
-            - **Delta:** `{bsm_put['delta']:.4f}`
-            - **Gamma:** `{bsm_put['gamma']:.4f}`
-            - **Theta:** `₹{bsm_put['theta']:.2f}`
-            - **Vega:** `₹{bsm_put['vega']:.2f}`
-            - **Rho:** `₹{bsm_put['rho']:.2f}`
+            - **Delta:** `{binom_put['delta']:.4f}`
+            - **Gamma:** `{binom_put['gamma']:.4f}`
+            - **Theta:** `₹{binom_put['theta']:.2f}`
+            - **Vega:** `₹{binom_put['vega']:.2f}`
+            - **Rho:** `₹{binom_put['rho']:.2f}`
             """)
 
 st.divider()
@@ -219,11 +214,9 @@ with col1:
     with st.container(border=True):
         st.markdown("#### Strategy Payoff at Expiration")
         
-        c1_payoff, c2_payoff = st.columns(2)
-        option_type_payoff = c1_payoff.radio("Select Option", ('Call', 'Put'), horizontal=True, key="payoff_choice")
-        model_for_payoff = c2_payoff.radio("Use premium from:", ('Black-Scholes', 'Binomial'), horizontal=True, key="model_choice")
-
-        premium = (bsm_call['price'] if option_type_payoff == 'Call' else bsm_put['price']) if model_for_payoff == 'Black-Scholes' else (binom_call.get('price', 0) if option_type_payoff == 'Call' else binom_put.get('price', 0))
+        option_type_payoff = st.radio("Select Option", ('Call', 'Put'), horizontal=True, key="payoff_choice")
+        
+        premium = binom_call.get('price', 0) if option_type_payoff == 'Call' else binom_put.get('price', 0)
         
         price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
         payoff = np.maximum(price_at_exp - K, 0) - premium if option_type_payoff == 'Call' else np.maximum(K - price_at_exp, 0) - premium
@@ -253,13 +246,11 @@ with st.container(border=True):
     N_viz = st.slider("Select number of steps to visualize", 2, 10, 4, 1)
     option_type_viz = st.radio("Select Option Type to Visualize", ('Call', 'Put'), horizontal=True, key="viz_choice")
     
-    # --- Tree Calculations ---
     dt_viz = T / N_viz
     u_viz = np.exp(v * np.sqrt(dt_viz))
     d_viz = 1 / u_viz
     p_viz = (np.exp(r * dt_viz) - d_viz) / (u_viz - d_viz)
     
-    # --- Display Formulas ---
     st.markdown("#### Core Formulas")
     f_col1, f_col2, f_col3 = st.columns(3)
     f_col1.latex(fr"u = e^{{\sigma \sqrt{{\Delta t}}}} = {u_viz:.4f}")
@@ -269,7 +260,6 @@ with st.container(border=True):
     
     st.markdown("---")
     
-    # --- Generate and Display Tree ---
     if 0 < p_viz < 1:
         asset_tree_viz, option_tree_viz = generate_binomial_tree_data(S, K, T, r, v, N_viz, option_type_viz)
         
@@ -281,7 +271,7 @@ with st.container(border=True):
                     st.metric(label=f"Asset Price", value=f"₹{asset_tree_viz[j, i]:.2f}")
                     st.info(f"Option Value: ₹{option_tree_viz[j, i]:.2f}")
     else:
-        st.error("Arbitrage opportunity detected (Risk-Neutral Probability 'p' is not between 0 and 1). Please adjust parameters.")
+        st.error("Arbitrage opportunity detected (p is not between 0 and 1). Please adjust parameters.")
         
     st.markdown("---")
     st.markdown("#### Valuation Process")
@@ -290,3 +280,4 @@ with st.container(border=True):
     2.  **Option valuation** begins at the final nodes (expiration). The value is its intrinsic worth: `max(0, Asset Price - Strike)` for a call, or `max(0, Strike - Asset Price)` for a put.
     3.  **Backward induction** is used to find the option's value today. The value at any node is the discounted expected value of the two possible future nodes, weighted by the risk-neutral probability *p*.
     """)
+
