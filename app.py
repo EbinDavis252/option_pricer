@@ -3,7 +3,6 @@ import numpy as np
 import yfinance as yf
 import pandas as pd
 from datetime import date, timedelta
-from streamlit_agraph import agraph, Node, Edge, Config
 
 # --- UI Styling ---
 def add_custom_css():
@@ -87,7 +86,7 @@ def get_nifty50_tickers():
         "Kotak Mahindra Bank": "KOTAKBANK.NS", "Axis Bank": "AXISBANK.NS", "NTPC": "NTPC.NS", "Maruti Suzuki": "MARUTI.NS",
         "Sun Pharmaceutical": "SUNPHARMA.NS", "Tata Motors": "TATAMOTORS.NS", "Tata Steel": "TATASTEEL.NS", "Power Grid Corporation": "POWERGRID.NS",
         "Titan Company": "TITAN.NS", "Asian Paints": "ASIANPAINT.NS", "UltraTech Cement": "ULTRACEMCO.NS", "Wipro": "WIPRO.NS",
-        "Adani Enterprises": "ADANIENT.NS", "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJAJFINSV.NS",
+        "Adani Enterprises": "ADANIENT.NS", "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJFINSV.NS",
         "HCL Technologies": "HCLTECH.NS", "Nestle India": "NESTLEIND.NS", "Grasim Industries": "GRASIM.NS", "Cipla": "CIPLA.NS",
         "Dr. Reddy's Laboratories": "DRREDDY.NS", "Adani Ports": "ADANIPORTS.NS", "Britannia Industries": "BRITANNIA.NS",
         "Hindalco Industries": "HINDALCO.NS", "Eicher Motors": "EICHERMOT.NS", "Coal India": "COALINDIA.NS", "Hero MotoCorp": "HEROMOTOCO.NS",
@@ -127,29 +126,6 @@ def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
         for j in range(i + 1):
             option_tree[j, i] = np.exp(-r * dt) * (p * option_tree[j, i + 1] + (1 - p) * option_tree[j + 1, i + 1])
     return asset_tree, option_tree
-
-def create_tree_graph_elements(asset_tree, option_tree):
-    """Generates nodes and edges for the agraph visualization."""
-    nodes = []
-    edges = []
-    n_steps = asset_tree.shape[1] - 1
-
-    for i in range(n_steps + 1): # Time steps
-        for j in range(i + 1):   # Nodes at each time step
-            node_id = f'T{i}N{j}'
-            asset_price = asset_tree[j, i]
-            option_price = option_tree[j, i]
-            
-            label = f"Asset: ₹{asset_price:.2f}\nOption: ₹{option_price:.2f}"
-            nodes.append(Node(id=node_id, label=label, shape="box", 
-                              color="#d1e4f6", font={'color': '#003366', 'size': 18}))
-
-            if i < n_steps:
-                up_node_id = f'T{i+1}N{j}'
-                edges.append(Edge(source=node_id, target=up_node_id, label='Up Move (u)', color="#28a745"))
-                down_node_id = f'T{i+1}N{j+1}'
-                edges.append(Edge(source=node_id, target=down_node_id, label='Down Move (d)', color="#dc3545"))
-    return nodes, edges
 
 # --- Streamlit UI ---
 st.set_page_config(layout="wide", page_title="Option Edge")
@@ -292,19 +268,16 @@ with st.container(border=True):
     
     if 0 < p_viz < 1 and T > 0:
         asset_tree_viz, option_tree_viz = generate_binomial_tree_data(S, K, T, r, v, N_viz, option_type_viz)
-        nodes, edges = create_tree_graph_elements(asset_tree_viz, option_tree_viz)
         
-        config = Config(width=1200, 
-                        height=800, 
-                        directed=True, 
-                        physics=False, 
-                        hierarchical={'enabled': True, 
-                                      'sortMethod': 'directed',
-                                      'levelSeparation': 350,
-                                      'nodeSpacing': 200,
-                                      'direction': 'LR'}) # Set direction to Left-to-Right
-        
-        agraph(nodes=nodes, edges=edges, config=config)
+        # Display the tree using Streamlit columns
+        for i in range(N_viz + 1):
+            st.markdown(f"**Time Step {i}**")
+            cols = st.columns(i + 1)
+            for j in range(i + 1):
+                with cols[j]:
+                    with st.container(border=True):
+                        st.metric(label="Asset Price", value=f"₹{asset_tree_viz[j, i]:.2f}")
+                        st.markdown(f"**Option Value: ₹{option_tree_viz[j, i]:.2f}**")
 
     elif T <= 0:
         st.warning("Cannot generate a tree for an expired option. Please select a future date.")
