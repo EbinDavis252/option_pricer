@@ -3,6 +3,7 @@ import numpy as np
 import yfinance as yf
 import pandas as pd
 from datetime import date, timedelta
+import plotly.graph_objects as go
 
 # --- UI Styling ---
 def add_custom_css():
@@ -86,7 +87,7 @@ def get_nifty50_tickers():
         "Kotak Mahindra Bank": "KOTAKBANK.NS", "Axis Bank": "AXISBANK.NS", "NTPC": "NTPC.NS", "Maruti Suzuki": "MARUTI.NS",
         "Sun Pharmaceutical": "SUNPHARMA.NS", "Tata Motors": "TATAMOTORS.NS", "Tata Steel": "TATASTEEL.NS", "Power Grid Corporation": "POWERGRID.NS",
         "Titan Company": "TITAN.NS", "Asian Paints": "ASIANPAINT.NS", "UltraTech Cement": "ULTRACEMCO.NS", "Wipro": "WIPRO.NS",
-        "Adani Enterprises": "ADANIENT.NS", "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJFINSV.NS",
+        "Adani Enterprises": "ADANIENT.NS", "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJAJFINSV.NS",
         "HCL Technologies": "HCLTECH.NS", "Nestle India": "NESTLEIND.NS", "Grasim Industries": "GRASIM.NS", "Cipla": "CIPLA.NS",
         "Dr. Reddy's Laboratories": "DRREDDY.NS", "Adani Ports": "ADANIPORTS.NS", "Britannia Industries": "BRITANNIA.NS",
         "Hindalco Industries": "HINDALCO.NS", "Eicher Motors": "EICHERMOT.NS", "Coal India": "COALINDIA.NS", "Hero MotoCorp": "HEROMOTOCO.NS",
@@ -126,6 +127,64 @@ def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
         for j in range(i + 1):
             option_tree[j, i] = np.exp(-r * dt) * (p * option_tree[j, i + 1] + (1 - p) * option_tree[j + 1, i + 1])
     return asset_tree, option_tree
+
+def create_tree_visualization(asset_tree, option_tree, N):
+    """Generates a Plotly figure for the binomial tree."""
+    edge_x, edge_y = [], []
+    node_x, node_y, node_text = [], [], []
+
+    # Calculate y-positions for the nodes at each time step
+    y_positions = [np.linspace(-(2**i-1), (2**i-1), i+1) for i in range(N + 1)]
+
+    for i in range(N + 1):
+        for j in range(i + 1):
+            # Node positions
+            x_pos = i
+            y_pos = y_positions[i][j]
+            node_x.append(x_pos)
+            node_y.append(y_pos)
+            node_text.append(f"Asset: ₹{asset_tree[j, i]:.2f}<br>Option: ₹{option_tree[j, i]:.2f}")
+
+            # Edge positions
+            if i < N:
+                # Edge to upper child
+                edge_x.extend([x_pos, x_pos + 1, None])
+                edge_y.extend([y_pos, y_positions[i+1][j], None])
+                # Edge to lower child
+                edge_x.extend([x_pos, x_pos + 1, None])
+                edge_y.extend([y_pos, y_positions[i+1][j+1], None])
+
+
+    fig = go.Figure()
+
+    # Add edges
+    fig.add_trace(go.Scatter(
+        x=edge_x, y=edge_y,
+        mode='lines',
+        line=dict(width=0.7, color='#888'),
+        hoverinfo='none'
+    ))
+
+    # Add nodes
+    fig.add_trace(go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        text=node_text,
+        marker=dict(symbol='circle', size=50, color='#ADD8E6', line=dict(width=1, color='DarkSlateGrey')),
+        textposition="middle center",
+        textfont=dict(size=10, color='black'),
+        hoverinfo='text'
+    ))
+
+    fig.update_layout(
+        showlegend=False,
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        height=600,
+        margin=dict(l=10, r=10, b=10, t=10),
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    return fig
 
 # --- Streamlit UI ---
 st.set_page_config(layout="wide", page_title="Option Edge")
@@ -268,16 +327,8 @@ with st.container(border=True):
     
     if 0 < p_viz < 1 and T > 0:
         asset_tree_viz, option_tree_viz = generate_binomial_tree_data(S, K, T, r, v, N_viz, option_type_viz)
-        
-        # Display the tree using Streamlit columns
-        for i in range(N_viz + 1):
-            st.markdown(f"**Time Step {i}**")
-            cols = st.columns(i + 1)
-            for j in range(i + 1):
-                with cols[j]:
-                    with st.container(border=True):
-                        st.metric(label="Asset Price", value=f"₹{asset_tree_viz[j, i]:.2f}")
-                        st.markdown(f"**Option Value: ₹{option_tree_viz[j, i]:.2f}**")
+        fig = create_tree_visualization(asset_tree_viz, option_tree_viz, N_viz)
+        st.plotly_chart(fig, use_container_width=True)
 
     elif T <= 0:
         st.warning("Cannot generate a tree for an expired option. Please select a future date.")
