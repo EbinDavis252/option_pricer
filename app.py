@@ -122,20 +122,20 @@ def create_tree_graph_elements(asset_tree, option_tree):
             
             label = f"Asset: ₹{asset_price:.2f}\nOption: ₹{option_price:.2f}"
             nodes.append(Node(id=node_id, label=label, shape="box", 
-                              color="#e6f2ff", font={'color': '#004085'}))
+                              color="#e6f2ff", font={'color': '#004085', 'size': 18}))
 
             if i < n_steps:
                 up_node_id = f'T{i+1}N{j}'
-                edges.append(Edge(source=node_id, target=up_node_id, label='u'))
+                edges.append(Edge(source=node_id, target=up_node_id, label='Up Move (u)', color="#28a745"))
                 down_node_id = f'T{i+1}N{j+1}'
-                edges.append(Edge(source=node_id, target=down_node_id, label='d'))
+                edges.append(Edge(source=node_id, target=down_node_id, label='Down Move (d)', color="#dc3545"))
     return nodes, edges
 
 # --- Streamlit UI ---
 st.set_page_config(layout="wide", page_title="Option Edge", page_icon="💡")
 
 st.title("💡Option Edge")
-st.markdown("##### A Binomial Model Dashboard for Advanced Option Analysis")
+st.markdown("##### A Professional Binomial Model for Financial Decision-Making")
 
 # --- Sidebar for User Inputs ---
 with st.sidebar:
@@ -150,8 +150,8 @@ with st.sidebar:
         st.error(f"Data unavailable for {ticker_symbol}. Please choose another asset.")
         st.stop()
 
-    st.header("🔧 Option Parameters")
-    S = st.number_input("Underlying Price (S)", value=latest_price, format="%.2f")
+    st.header("🔧 Option Strategy Parameters")
+    S = st.number_input("Current Asset Price (S)", value=latest_price, format="%.2f")
     K = st.number_input("Strike Price (K)", value=round(latest_price, -2), step=100.0, format="%.2f")
     
     today = date.today()
@@ -159,15 +159,16 @@ with st.sidebar:
     T = (exp_date - today).days / 365.0
     st.write(f"Days to Expiry: {max(0, (exp_date - today).days)}")
     
-    r = st.slider("Risk-Free Rate (r)", 0.0, 0.2, 0.071, 0.001, format="%.3f")
+    st.header("📈 Market Assumptions")
+    r = st.slider("Risk-Free Interest Rate (%)", 0.0, 20.0, 7.1, 0.1, format="%.1f") / 100
     hv = calculate_historical_volatility(hist_data)
-    v = st.slider("Volatility (v)", 0.01, 2.00, value=hv, step=0.01, format="%.2f", 
-                  help=f"Annualized historical volatility is {hv:.2f}. Adjust based on your market view.")
+    v = st.slider("Implied Volatility (%)", 1.0, 200.0, hv * 100, 1.0, format="%.1f", 
+                  help=f"The asset's 1-year historical volatility is {hv:.1%}. Adjust based on your forecast.") / 100
 
 # --- Main Panel ---
 
 # --- Selected Company Data ---
-st.subheader(f"Market Data for {info.get('longName', selected_company_name)}")
+st.subheader(f"Live Market Snapshot: {info.get('longName', selected_company_name)}")
 with st.container(border=True):
     price_change = latest_price - info.get('previousClose', latest_price)
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -180,6 +181,7 @@ with st.container(border=True):
 st.divider()
 
 st.subheader("🧮 Binomial Model Pricing & Risk Analysis")
+st.markdown("The core of the dashboard, providing the theoretical option price based on the Binomial model and the critical risk metrics (Greeks).")
 binom_steps = 100
 binom_call = binomial_option_pricer(S, K, T, r, v, binom_steps, 'call')
 binom_put = binomial_option_pricer(S, K, T, r, v, binom_steps, 'put')
@@ -187,37 +189,49 @@ binom_put = binomial_option_pricer(S, K, T, r, v, binom_steps, 'put')
 col1, col2 = st.columns(2)
 with col1:
     with st.container(border=True):
-        st.markdown("#### Call Option")
-        st.metric(f"Option Price", f"₹{binom_call.get('price', 0):.2f}")
+        st.markdown("#### Call Option (Right to Buy)")
+        st.metric(f"Theoretical Option Price", f"₹{binom_call.get('price', 0):.2f}")
         st.markdown("---")
-        st.markdown("**Risk Greeks (Binomial Approximation)**")
+        st.markdown("**Key Risk Metrics (The Greeks)**")
         g1, g2 = st.columns(2)
         g1.metric("Delta", f"{binom_call.get('delta', 0):.4f}")
+        g1.caption("Price sensitivity to a ₹1 change in the underlying asset.")
         g2.metric("Gamma", f"{binom_call.get('gamma', 0):.4f}")
+        g2.caption("Sensitivity of Delta to changes in the underlying asset.")
         g1.metric("Theta (per day)", f"₹{binom_call.get('theta', 0):.2f}")
+        g1.caption("Daily value decay of the option due to time passing.")
         g2.metric("Vega (per 1% vol)", f"₹{binom_call.get('vega', 0):.2f}")
+        g2.caption("Price sensitivity to a 1% change in volatility.")
         g1.metric("Rho (per 1% rate)", f"₹{binom_call.get('rho', 0):.2f}")
+        g1.caption("Price sensitivity to a 1% change in interest rates.")
 
 with col2:
     with st.container(border=True):
-        st.markdown("#### Put Option")
-        st.metric(f"Option Price", f"₹{binom_put.get('price', 0):.2f}")
+        st.markdown("#### Put Option (Right to Sell)")
+        st.metric(f"Theoretical Option Price", f"₹{binom_put.get('price', 0):.2f}")
         st.markdown("---")
-        st.markdown("**Risk Greeks (Binomial Approximation)**")
+        st.markdown("**Key Risk Metrics (The Greeks)**")
         g1, g2 = st.columns(2)
         g1.metric("Delta", f"{binom_put.get('delta', 0):.4f}")
+        g1.caption("Price sensitivity to a ₹1 change in the underlying asset.")
         g2.metric("Gamma", f"{binom_put.get('gamma', 0):.4f}")
+        g2.caption("Sensitivity of Delta to changes in the underlying asset.")
         g1.metric("Theta (per day)", f"₹{binom_put.get('theta', 0):.2f}")
+        g1.caption("Daily value decay of the option due to time passing.")
         g2.metric("Vega (per 1% vol)", f"₹{binom_put.get('vega', 0):.2f}")
+        g2.caption("Price sensitivity to a 1% change in volatility.")
         g1.metric("Rho (per 1% rate)", f"₹{binom_put.get('rho', 0):.2f}")
+        g1.caption("Price sensitivity to a 1% change in interest rates.")
 
 st.divider()
 
 st.subheader("📊 Visual Analysis Suite")
+st.markdown("Interactive charts to help you understand the potential outcomes and key drivers of the option's value.")
 col1, col2 = st.columns(2)
 with col1:
     with st.container(border=True):
         st.markdown("#### Strategy Payoff at Expiration")
+        st.caption("This chart visualizes your potential profit or loss. The point where the line crosses zero is your breakeven price.")
         option_type_payoff = st.radio("Select Option for Payoff", ('Call', 'Put'), horizontal=True)
         premium = binom_call.get('price', 0) if option_type_payoff == 'Call' else binom_put.get('price', 0)
         price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
@@ -227,22 +241,22 @@ with col1:
         st.area_chart(payoff_df)
         p1, p2 = st.columns(2)
         p1.metric("Breakeven Price", f"₹{breakeven:.2f}")
-        p2.metric("Max Loss (Premium)", f"₹{-premium:.2f}")
+        p2.metric("Max Loss (Premium Paid)", f"₹{-premium:.2f}")
 
 with col2:
     with st.container(border=True):
-        st.markdown(f"#### Volatility Analysis")
-        st.metric(f"1-Year Historical Volatility for {selected_company_name}", f"{hv:.2%}")
+        st.markdown(f"#### Price History & Volatility")
+        st.caption("This chart shows the asset's price swings over the last year. Larger swings result in higher historical volatility.")
+        st.metric(f"1-Year Historical Volatility", f"{hv:.2%}")
         st.line_chart(hist_data['Close'], use_container_width=True)
-        st.caption("Historical volatility is based on the standard deviation of logarithmic returns over the last year.")
-
+        
 st.divider()
 
 st.subheader("🌳 Binomial Tree Construction")
+st.markdown("This visualizes how the model calculates the option price by building a tree of potential future asset prices and working backward.")
 with st.container(border=True):
-    st.markdown("This section visualizes the underlying asset price movements and the corresponding option values at each node of the binomial tree.")
     c1, c2 = st.columns([1,2])
-    N_viz = c1.slider("Steps to visualize", 2, 8, 4, 1)
+    N_viz = c1.slider("Steps to Visualize", 2, 8, 4, 1, help="Select the number of time steps for the tree. Fewer steps are easier to visualize.")
     option_type_viz = c2.radio("Option Type to Visualize", ('Call', 'Put'), horizontal=True, key="viz_choice")
     
     if T > 0:
@@ -253,33 +267,36 @@ with st.container(border=True):
     else:
         p_viz = -1 # Invalid p to prevent calculation
     
-    st.markdown("---")
-    
     if 0 < p_viz < 1 and T > 0:
         asset_tree_viz, option_tree_viz = generate_binomial_tree_data(S, K, T, r, v, N_viz, option_type_viz)
         nodes, edges = create_tree_graph_elements(asset_tree_viz, option_tree_viz)
         
         config = Config(width=1200, 
-                        height=600, 
+                        height=800, 
                         directed=True, 
                         physics=False, 
                         hierarchical={'enabled': True, 
-                                      'sortMethod': 'directed', 
-                                      'levelSeparation': 300, 
-                                      'direction': 'LR'})
+                                      'sortMethod': 'directed',
+                                      'nodeSpacing': 200,
+                                      'treeSpacing': 250,
+                                      'levelSeparation': 250}) # Removed 'direction' to default to top-bottom
         
         agraph(nodes=nodes, edges=edges, config=config)
 
     elif T <= 0:
         st.warning("Cannot generate a tree for an expired option. Please select a future date.")
     else:
-        st.error("Arbitrage opportunity detected (risk-neutral probability 'p' is not between 0 and 1). Please adjust parameters like Volatility or Risk-Free Rate.")
+        st.error("Arbitrage Opportunity Detected: The model cannot be built with these parameters. Please adjust Volatility or the Risk-Free Rate.")
         
     st.markdown("---")
     with st.expander("Learn about the Valuation Process"):
         st.markdown("""
-        1.  **Asset Price Projection:** The tree projects asset prices from today (Step 0) to expiration. At each step, the price moves up by factor `u` or down by factor `d`.
-        2.  **Terminal Valuation:** At expiration (the final step), the option's value is its intrinsic worth: `max(0, Asset Price - Strike)` for a call, or `max(0, Strike - Asset Price)` for a put.
-        3.  **Backward Induction:** The model then works backward. The value at any earlier node is the discounted expected value of the two subsequent nodes, weighted by the risk-neutral probability `p`. This process continues until it reaches Step 0, giving the option's current theoretical price.
+        The Binomial Model is a powerful tool that breaks down the time to expiration into a number of discrete time steps. Here’s how it works:
+        
+        1.  **Asset Price Tree:** The model first builds a tree of all possible future prices for the underlying asset. It starts with today's price and projects forward. At each step, the price can either go up (by a factor of `u`) or down (by a factor of `d`).
+        
+        2.  **Value at Expiration:** At the final step of the tree (the option's expiration date), the model calculates the option's value at each possible final asset price. This is simply its intrinsic value: `max(0, Asset Price - Strike Price)` for a call, or `max(0, Strike Price - Asset Price)` for a put.
+        
+        3.  **Backward Induction:** This is the key step. The model works backward from the final step to the present. The option value at any given node is calculated as the discounted average of the two possible future values, weighted by a "risk-neutral probability" (`p`). This process is repeated until it arrives at the first node, which gives the theoretical value of the option today.
         """)
 
