@@ -3,6 +3,7 @@ import numpy as np
 import yfinance as yf
 import pandas as pd
 from datetime import date, timedelta
+import graphviz
 
 # --- Model Implementations ---
 
@@ -103,6 +104,35 @@ def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
             option_tree[j, i] = np.exp(-r * dt) * (p * option_tree[j, i + 1] + (1 - p) * option_tree[j + 1, i + 1])
     return asset_tree, option_tree
 
+def create_tree_graph(asset_tree, option_tree):
+    """Generates a Graphviz object for the binomial tree visualization."""
+    dot = graphviz.Digraph()
+    dot.attr(rankdir='LR') # Arrange tree from Left to Right
+    dot.attr('node', shape='record', style='filled, rounded', fillcolor='#e6f2ff')
+    dot.attr('edge', arrowhead='vee', color='gray40')
+
+    n_steps = asset_tree.shape[1] - 1
+
+    for i in range(n_steps + 1): # Time steps
+        for j in range(i + 1):   # Nodes at each time step
+            node_id = f'T{i}N{j}'
+            asset_price = asset_tree[j, i]
+            option_price = option_tree[j, i]
+            
+            label = f"{{ Asset: ₹{asset_price:.2f} | Option: ₹{option_price:.2f} }}"
+            dot.node(node_id, label)
+
+            # Add edges to the next step
+            if i < n_steps:
+                # Edge to the 'up' node in the next step
+                up_node_id = f'T{i+1}N{j}'
+                dot.edge(node_id, up_node_id, label=' u')
+
+                # Edge to the 'down' node in the next step
+                down_node_id = f'T{i+1}N{j+1}'
+                dot.edge(node_id, down_node_id, label=' d')
+    return dot
+
 # --- Streamlit UI ---
 st.set_page_config(layout="wide", page_title="Option Edge", page_icon="💡")
 
@@ -123,9 +153,9 @@ with st.sidebar:
         st.stop()
         
     st.markdown(f"### {info.get('longName', selected_company_name)}")
-    st.metric("Last Market Price", f"₹{latest_price:.2f}", f"{latest_price - info.get('previousClose', 0):.2f} (₹)")
 
-    with st.expander("View Market Data"):
+    with st.expander("View Market Data", expanded=True):
+        st.metric("Last Market Price", f"₹{latest_price:.2f}", f"{latest_price - info.get('previousClose', 0):.2f} (₹)")
         col1, col2 = st.columns(2)
         col1.metric("Previous Close", f"₹{info.get('previousClose', 0):.2f}")
         col2.metric("Open", f"₹{info.get('open', 0):.2f}")
@@ -220,17 +250,14 @@ with st.container(border=True):
     
     st.markdown("---")
     
-    if 0 < p_viz < 1:
+    if 0 < p_viz < 1 and T > 0:
         asset_tree_viz, option_tree_viz = generate_binomial_tree_data(S, K, T, r, v, N_viz, option_type_viz)
-        for i in range(N_viz + 1):
-            st.markdown(f"**Time Step {i}**")
-            cols = st.columns(i + 1)
-            for j in range(i + 1):
-                with cols[j]:
-                    st.metric(label=f"Asset Price", value=f"₹{asset_tree_viz[j, i]:.2f}")
-                    st.info(f"Option Value: ₹{option_tree_viz[j, i]:.2f}")
+        graph = create_tree_graph(asset_tree_viz, option_tree_viz)
+        st.graphviz_chart(graph)
+    elif T <= 0:
+        st.warning("Cannot generate a tree for an expired option. Please select a future date.")
     else:
-        st.error("Arbitrage opportunity detected (p is not between 0 and 1). Please adjust parameters.")
+        st.error("Arbitrage opportunity detected (risk-neutral probability 'p' is not between 0 and 1). Please adjust parameters like Volatility or Risk-Free Rate.")
         
     st.markdown("---")
     with st.expander("Learn about the Valuation Process"):
