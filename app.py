@@ -3,7 +3,7 @@ import numpy as np
 import yfinance as yf
 import pandas as pd
 from datetime import date, timedelta
-import graphviz
+from streamlit_agraph import agraph, Node, Edge, Config
 
 # --- Model Implementations ---
 
@@ -43,11 +43,15 @@ def binomial_option_pricer(S, K, T, r, v, N, option_type='call'):
     
     # Greeks Calculation
     price = option_tree[0, 0]
+    # Ensure there are enough nodes for Greek calculation
+    if N < 2:
+        return {'price': price, 'delta': np.nan, 'gamma': np.nan, 'theta': np.nan, 'vega': np.nan, 'rho': np.nan}
+        
     delta = (option_tree[0, 1] - option_tree[1, 1]) / (asset_tree[0, 1] - asset_tree[1, 1])
     delta_up = (option_tree[0, 2] - option_tree[1, 2]) / (asset_tree[0, 2] - asset_tree[1, 2])
     delta_down = (option_tree[1, 2] - option_tree[2, 2]) / (asset_tree[1, 2] - asset_tree[2, 2])
     gamma = (delta_up - delta_down) / (0.5 * (asset_tree[0, 2] - asset_tree[2, 2]))
-    theta = (option_tree[1, 2] - option_tree[0, 0]) / (2 * dt)
+    theta = (option_tree[1, 1] - option_tree[0, 0]) / dt # Theta per time step dt
     vega = (_pricer_just_price(S, K, T, r, v + 0.01, N, option_type) - price)
     rho = (_pricer_just_price(S, K, T, r + 0.01, v, N, option_type) - price)
 
@@ -72,7 +76,7 @@ def get_nifty50_tickers():
         "Bajaj Auto": "BAJAJ-AUTO.NS", "Tata Consumer Products": "TATACONSUM.NS"
     }
 
-@st.cache_data(ttl=900)
+@st.cache_data(ttl=900) # Cache for 15 mins
 def fetch_stock_data(ticker):
     stock = yf.Ticker(ticker)
     info = stock.info
@@ -104,13 +108,10 @@ def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
             option_tree[j, i] = np.exp(-r * dt) * (p * option_tree[j, i + 1] + (1 - p) * option_tree[j + 1, i + 1])
     return asset_tree, option_tree
 
-def create_tree_graph(asset_tree, option_tree):
-    """Generates a Graphviz object for the binomial tree visualization."""
-    dot = graphviz.Digraph()
-    dot.attr(rankdir='LR') # Arrange tree from Left to Right
-    dot.attr('node', shape='record', style='filled, rounded', fillcolor='#e6f2ff')
-    dot.attr('edge', arrowhead='vee', color='gray40')
-
+def create_tree_graph_elements(asset_tree, option_tree):
+    """Generates nodes and edges for the agraph visualization."""
+    nodes = []
+    edges = []
     n_steps = asset_tree.shape[1] - 1
 
     for i in range(n_steps + 1): # Time steps
@@ -119,19 +120,16 @@ def create_tree_graph(asset_tree, option_tree):
             asset_price = asset_tree[j, i]
             option_price = option_tree[j, i]
             
-            label = f"{{ Asset: ₹{asset_price:.2f} | Option: ₹{option_price:.2f} }}"
-            dot.node(node_id, label)
+            label = f"Asset: ₹{asset_price:.2f}\nOption: ₹{option_price:.2f}"
+            nodes.append(Node(id=node_id, label=label, shape="box", 
+                              color="#e6f2ff", font={'color': '#004085'}))
 
-            # Add edges to the next step
             if i < n_steps:
-                # Edge to the 'up' node in the next step
                 up_node_id = f'T{i+1}N{j}'
-                dot.edge(node_id, up_node_id, label=' u')
-
-                # Edge to the 'down' node in the next step
+                edges.append(Edge(source=node_id, target=up_node_id, label='u'))
                 down_node_id = f'T{i+1}N{j+1}'
-                dot.edge(node_id, down_node_id, label=' d')
-    return dot
+                edges.append(Edge(source=node_id, target=down_node_id, label='d'))
+    return nodes, edges
 
 # --- Streamlit UI ---
 st.set_page_config(layout="wide", page_title="Option Edge", page_icon="💡")
@@ -155,7 +153,8 @@ with st.sidebar:
     st.markdown(f"### {info.get('longName', selected_company_name)}")
 
     with st.expander("View Market Data", expanded=True):
-        st.metric("Last Market Price", f"₹{latest_price:.2f}", f"{latest_price - info.get('previousClose', 0):.2f} (₹)")
+        price_change = latest_price - info.get('previousClose', latest_price)
+        st.metric("Last Market Price", f"₹{latest_price:.2f}", f"{price_change:.2f} (₹)")
         col1, col2 = st.columns(2)
         col1.metric("Previous Close", f"₹{info.get('previousClose', 0):.2f}")
         col2.metric("Open", f"₹{info.get('open', 0):.2f}")
@@ -190,11 +189,11 @@ with col1:
         st.markdown("---")
         st.markdown("**Risk Greeks (Binomial Approximation)**")
         g1, g2 = st.columns(2)
-        g1.metric("Delta", f"{binom_call['delta']:.4f}")
-        g2.metric("Gamma", f"{binom_call['gamma']:.4f}")
-        g1.metric("Theta (per day)", f"₹{binom_call['theta']:.2f}")
-        g2.metric("Vega (per 1% vol)", f"₹{binom_call['vega']:.2f}")
-        g1.metric("Rho (per 1% rate)", f"₹{binom_call['rho']:.2f}")
+        g1.metric("Delta", f"{binom_call.get('delta', 0):.4f}")
+        g2.metric("Gamma", f"{binom_call.get('gamma', 0):.4f}")
+        g1.metric("Theta (per day)", f"₹{binom_call.get('theta', 0):.2f}")
+        g2.metric("Vega (per 1% vol)", f"₹{binom_call.get('vega', 0):.2f}")
+        g1.metric("Rho (per 1% rate)", f"₹{binom_call.get('rho', 0):.2f}")
 
 with col2:
     with st.container(border=True):
@@ -203,11 +202,11 @@ with col2:
         st.markdown("---")
         st.markdown("**Risk Greeks (Binomial Approximation)**")
         g1, g2 = st.columns(2)
-        g1.metric("Delta", f"{binom_put['delta']:.4f}")
-        g2.metric("Gamma", f"{binom_put['gamma']:.4f}")
-        g1.metric("Theta (per day)", f"₹{binom_put['theta']:.2f}")
-        g2.metric("Vega (per 1% vol)", f"₹{binom_put['vega']:.2f}")
-        g1.metric("Rho (per 1% rate)", f"₹{binom_put['rho']:.2f}")
+        g1.metric("Delta", f"{binom_put.get('delta', 0):.4f}")
+        g2.metric("Gamma", f"{binom_put.get('gamma', 0):.4f}")
+        g1.metric("Theta (per day)", f"₹{binom_put.get('theta', 0):.2f}")
+        g2.metric("Vega (per 1% vol)", f"₹{binom_put.get('vega', 0):.2f}")
+        g1.metric("Rho (per 1% rate)", f"₹{binom_put.get('rho', 0):.2f}")
 
 st.divider()
 
@@ -243,17 +242,28 @@ with st.container(border=True):
     N_viz = c1.slider("Steps to visualize", 2, 8, 4, 1)
     option_type_viz = c2.radio("Option Type to Visualize", ('Call', 'Put'), horizontal=True, key="viz_choice")
     
-    dt_viz = T / N_viz
-    u_viz = np.exp(v * np.sqrt(dt_viz))
-    d_viz = 1 / u_viz
-    p_viz = (np.exp(r * dt_viz) - d_viz) / (u_viz - d_viz)
+    if T > 0:
+        dt_viz = T / N_viz
+        u_viz = np.exp(v * np.sqrt(dt_viz))
+        d_viz = 1 / u_viz
+        p_viz = (np.exp(r * dt_viz) - d_viz) / (u_viz - d_viz)
+    else:
+        p_viz = -1 # Invalid p to prevent calculation
     
     st.markdown("---")
     
     if 0 < p_viz < 1 and T > 0:
         asset_tree_viz, option_tree_viz = generate_binomial_tree_data(S, K, T, r, v, N_viz, option_type_viz)
-        graph = create_tree_graph(asset_tree_viz, option_tree_viz)
-        st.graphviz_chart(graph)
+        nodes, edges = create_tree_graph_elements(asset_tree_viz, option_tree_viz)
+        
+        config = Config(width=1200, 
+                        height=600, 
+                        directed=True, 
+                        physics=False, 
+                        hierarchical={'enabled': True, 'sortMethod': 'directed', 'levelSeparation': 250})
+        
+        agraph(nodes=nodes, edges=edges, config=config)
+
     elif T <= 0:
         st.warning("Cannot generate a tree for an expired option. Please select a future date.")
     else:
