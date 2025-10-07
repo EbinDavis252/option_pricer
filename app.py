@@ -307,6 +307,7 @@ with col1:
         payoff = np.maximum(price_at_exp - K, 0) - premium if option_type_payoff == 'Call' else np.maximum(K - price_at_exp, 0) - premium
         breakeven = K + premium if option_type_payoff == 'Call' else K - premium
         payoff_df = pd.DataFrame({'Profit / Loss (₹)': payoff}, index=price_at_exp)
+        payoff_df.index.name = "Asset Price at Expiration (₹)"
         st.area_chart(payoff_df)
         p1, p2 = st.columns(2)
         p1.metric("Breakeven Price", f"₹{breakeven:.2f}")
@@ -317,7 +318,10 @@ with col2:
         st.markdown(f"#### Price History & Volatility")
         st.caption("This chart shows the asset's price movements over the last year. Wider and more frequent swings lead to a higher historical volatility, which generally makes options more expensive.")
         st.metric(f"1-Year Historical Volatility", f"{hv:.2%}")
-        st.line_chart(hist_data['Close'], use_container_width=True)
+        price_history_df = hist_data[['Close']].copy()
+        price_history_df.rename(columns={'Close': 'Closing Price (₹)'}, inplace=True)
+        price_history_df.index.name = 'Date'
+        st.line_chart(price_history_df, use_container_width=True)
         
 st.divider()
 
