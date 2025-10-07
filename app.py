@@ -300,8 +300,9 @@ with st.container(border=True):
                         physics=False, 
                         hierarchical={'enabled': True, 
                                       'sortMethod': 'directed',
-                                      'levelSeparation': 300,
-                                      'direction': 'LR'})
+                                      'levelSeparation': 350,
+                                      'nodeSpacing': 200,
+                                      'direction': 'LR'}) # Set direction to Left-to-Right
         
         agraph(nodes=nodes, edges=edges, config=config)
 
