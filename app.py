@@ -14,9 +14,10 @@ def add_custom_css():
         background-image: linear-gradient(to right top, #e6f2ff, #edf5ff, #f3f8ff, #f9fbff, #ffffff);
         background-size: cover;
     }
-    /* Sidebar background */
+    /* Sidebar styling with border */
     [data-testid="stSidebar"] {
         background-color: #f1f8ff;
+        border-right: 1px solid #d1d9e6; /* Added border */
     }
     /* Remove header background */
     [data-testid="stHeader"] {
@@ -306,9 +307,18 @@ with col1:
         price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
         payoff = np.maximum(price_at_exp - K, 0) - premium if option_type_payoff == 'Call' else np.maximum(K - price_at_exp, 0) - premium
         breakeven = K + premium if option_type_payoff == 'Call' else K - premium
-        payoff_df = pd.DataFrame({'Profit / Loss (₹)': payoff}, index=price_at_exp)
-        payoff_df.index.name = "Asset Price at Expiration (₹)"
-        st.area_chart(payoff_df)
+
+        # Create Plotly figure for payoff chart
+        payoff_fig = go.Figure()
+        payoff_fig.add_trace(go.Scatter(x=price_at_exp, y=payoff, fill='tozeroy', mode='lines', line=dict(color='royalblue')))
+        payoff_fig.update_layout(
+            xaxis_title="Asset Price at Expiration (₹)",
+            yaxis_title="Profit / Loss (₹)",
+            margin=dict(l=40, r=20, t=40, b=40),
+            height=350
+        )
+        st.plotly_chart(payoff_fig, use_container_width=True)
+        
         p1, p2 = st.columns(2)
         p1.metric("Breakeven Price", f"₹{breakeven:.2f}")
         p2.metric("Max Loss (Premium Paid)", f"₹{-premium:.2f}")
@@ -318,10 +328,17 @@ with col2:
         st.markdown(f"#### Price History & Volatility")
         st.caption("This chart shows the asset's price movements over the last year. Wider and more frequent swings lead to a higher historical volatility, which generally makes options more expensive.")
         st.metric(f"1-Year Historical Volatility", f"{hv:.2%}")
-        price_history_df = hist_data[['Close']].copy()
-        price_history_df.rename(columns={'Close': 'Closing Price (₹)'}, inplace=True)
-        price_history_df.index.name = 'Date'
-        st.line_chart(price_history_df, use_container_width=True)
+        
+        # Create Plotly figure for price history
+        history_fig = go.Figure()
+        history_fig.add_trace(go.Scatter(x=hist_data.index, y=hist_data['Close'], mode='lines', line=dict(color='teal')))
+        history_fig.update_layout(
+            xaxis_title="Date",
+            yaxis_title="Closing Price (₹)",
+            margin=dict(l=40, r=20, t=40, b=40),
+            height=350
+        )
+        st.plotly_chart(history_fig, use_container_width=True)
         
 st.divider()
 
