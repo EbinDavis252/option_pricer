@@ -2,181 +2,231 @@ import streamlit as st
 import numpy as np
 import yfinance as yf
 import pandas as pd
+from scipy.stats import norm
 from datetime import date, timedelta
 
-# --- Core Binomial Option Pricing Model ---
-# (This is the same function from the previous response)
+# --- Model Implementations ---
+
+# 1. Black-Scholes-Merton Model
+def black_scholes_pricer(S, K, T, r, v, option_type='call'):
+    """
+    Calculates European option price and Greeks using the Black-Scholes model.
+    """
+    if T <= 0: # Handle expired options
+        price = max(0, S - K) if option_type == 'call' else max(0, K - S)
+        return {'price': price, 'delta': 1 if S > K else 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0}
+
+    d1 = (np.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * np.sqrt(T))
+    d2 = d1 - v * np.sqrt(T)
+    
+    if option_type == 'call':
+        price = (S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
+        delta = norm.cdf(d1)
+        rho = K * T * np.exp(-r * T) * norm.cdf(d2)
+    else: # put
+        price = (K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1))
+        delta = norm.cdf(d1) - 1
+        rho = -K * T * np.exp(-r * T) * norm.cdf(-d2)
+
+    gamma = norm.pdf(d1) / (S * v * np.sqrt(T))
+    vega = S * norm.pdf(d1) * np.sqrt(T)
+    theta = -(S * norm.pdf(d1) * v) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * (norm.cdf(d2) if option_type == 'call' else -norm.cdf(-d2))
+    
+    return {
+        'price': price, 'delta': delta, 'gamma': gamma,
+        'theta': theta / 365, 'vega': vega / 100, 'rho': rho / 100
+    }
+
+# 2. Binomial Option Pricing Model (from previous version, slightly refined)
 def binomial_option_pricer(S, K, T, r, v, N, option_type='call'):
-    """
-    Calculates European option price and Greeks using the Binomial Tree model.
-    """
-    # Helper function to avoid re-calculating greeks in vega/rho estimation
-    def _pricer_no_greeks(S, K, T, r, v, N, option_type):
-        dt = T / N
-        u = np.exp(v * np.sqrt(dt))
-        d = 1 / u
-        p = (np.exp(r * dt) - d) / (u - d)
+    if T <= 0: # Handle expired options
+        price = max(0, S - K) if option_type == 'call' else max(0, K - S)
+        return {'price': price, 'delta': 1 if S > K else 0, 'gamma': 0, 'theta': 0, 'vega': 0, 'rho': 0}
         
-        asset_prices = np.zeros((N + 1, N + 1))
-        asset_prices[0, 0] = S
-        for i in range(1, N + 1):
-            asset_prices[i, 0] = asset_prices[i - 1, 0] * u
-            for j in range(1, i + 1):
-                asset_prices[i, j] = asset_prices[i - 1, j - 1] * d
-
-        option_values = np.zeros((N + 1, N + 1))
-        for j in range(N + 1):
-            if option_type == 'call':
-                option_values[N, j] = max(0, asset_prices[N, j] - K)
-            else:
-                option_values[N, j] = max(0, K - asset_prices[N, j])
-
-        for i in range(N - 1, -1, -1):
-            for j in range(i + 1):
-                option_values[i, j] = np.exp(-r * dt) * (p * option_values[i + 1, j] + (1 - p) * option_values[i + 1, j + 1])
-        
-        return option_values[0, 0]
-
-    # Main pricing logic
     dt = T / N
     u = np.exp(v * np.sqrt(dt))
     d = 1 / u
-    # Ensure p is within a valid range
-    if d >= np.exp(r * dt) or np.exp(r * dt) >= u:
-        return {'price': np.nan, 'delta': np.nan, 'gamma': np.nan, 'theta': np.nan, 'vega': np.nan, 'rho': np.nan}
     p = (np.exp(r * dt) - d) / (u - d)
 
-    asset_prices = np.zeros((N + 1, N + 1))
-    option_values = np.zeros((N + 1, N + 1))
-    asset_prices[0, 0] = S
-    for i in range(1, N + 1):
-        asset_prices[i, 0] = asset_prices[i - 1, 0] * u
-        for j in range(1, i + 1):
-            asset_prices[i, j] = asset_prices[i - 1, j - 1] * d
+    if not (0 < p < 1):
+        return {'price': np.nan, 'delta': np.nan, 'gamma': np.nan, 'theta': np.nan, 'vega': np.nan, 'rho': np.nan}
 
+    # Price tree
+    price_tree = np.zeros((N + 1, N + 1))
     for j in range(N + 1):
-        if option_type == 'call':
-            option_values[N, j] = max(0, asset_prices[N, j] - K)
-        else:
-            option_values[N, j] = max(0, K - asset_prices[N, j])
+        price_tree[j, N] = max(0, S * (u**j) * (d**(N - j)) - K if option_type == 'call' else K - S * (u**j) * (d**(N - j)))
 
     for i in range(N - 1, -1, -1):
         for j in range(i + 1):
-            option_values[i, j] = np.exp(-r * dt) * (p * option_values[i + 1, j] + (1 - p) * option_values[i + 1, j + 1])
+            price_tree[j, i] = np.exp(-r * dt) * (p * price_tree[j + 1, i + 1] + (1 - p) * price_tree[j, i + 1])
+    
+    # Greeks are complex to get right in binomial for comparison, BSM is better for this demo
+    # For simplicity, returning price only from binomial for direct comparison.
+    return {'price': price_tree[0, 0]}
 
-    delta = (option_values[1, 0] - option_values[1, 1]) / (asset_prices[1, 0] - asset_prices[1, 1])
-    delta_up = (option_values[2, 0] - option_values[2, 1]) / (asset_prices[2, 0] - asset_prices[2, 1])
-    delta_down = (option_values[2, 1] - option_values[2, 2]) / (asset_prices[2, 1] - asset_prices[2, 2])
-    gamma = (delta_up - delta_down) / ((asset_prices[0,0] * (u**2 - d**2))/2)
-    theta_per_step = (option_values[2, 1] - option_values[0, 0]) / (2 * dt)
-    theta = theta_per_step / 365
 
-    # Use the helper for Vega/Rho to avoid recursion on greeks
-    vega_price_up = _pricer_no_greeks(S, K, T, r, v + 0.01, N, option_type)
-    vega = (vega_price_up - option_values[0, 0])
+# --- Data and Helper Functions ---
 
-    rho_price_up = _pricer_no_greeks(S, K, T, r + 0.01, v, N, option_type)
-    rho = (rho_price_up - option_values[0, 0])
-
+@st.cache_data
+def get_nifty50_tickers():
+    # List of Nifty 50 stocks with their Yahoo Finance tickers
     return {
-        'price': option_values[0, 0], 'delta': delta, 'gamma': gamma,
-        'theta': theta, 'vega': vega, 'rho': rho
+        "NIFTY 50 Index": "^NSEI",
+        "Reliance Industries": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "ICICI Bank": "ICICIBANK.NS",
+        "Infosys": "INFY.NS", "Tata Consultancy Services": "TCS.NS", "Hindustan Unilever": "HINDUNILVR.NS",
+        "ITC": "ITC.NS", "Larsen & Toubro": "LT.NS", "Bajaj Finance": "BAJFINANCE.NS",
+        "State Bank of India": "SBIN.NS", "Bharti Airtel": "BHARTIARTL.NS", "Kotak Mahindra Bank": "KOTAKBANK.NS",
+        "Axis Bank": "AXISBANK.NS", "NTPC": "NTPC.NS", "Maruti Suzuki": "MARUTI.NS",
+        "Sun Pharmaceutical": "SUNPHARMA.NS", "Tata Motors": "TATAMOTORS.NS", "Tata Steel": "TATASTEEL.NS",
+        "Power Grid Corporation": "POWERGRID.NS", "Titan Company": "TITAN.NS", "Asian Paints": "ASIANPAINT.NS",
+        "UltraTech Cement": "ULTRACEMCO.NS", "Wipro": "WIPRO.NS", "Adani Enterprises": "ADANIENT.NS",
+        "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJAJFINSV.NS",
+        "HCL Technologies": "HCLTECH.NS", "Nestle India": "NESTLEIND.NS", "Grasim Industries": "GRASIM.NS",
+        "Cipla": "CIPLA.NS", "Dr. Reddy's Laboratories": "DRREDDY.NS", "Adani Ports": "ADANIPORTS.NS",
+        "Britannia Industries": "BRITANNIA.NS", "Hindalco Industries": "HINDALCO.NS", "Eicher Motors": "EICHERMOT.NS",
+        "Coal India": "COALINDIA.NS", "Hero MotoCorp": "HEROMOTOCO.NS", "Divi's Laboratories": "DIVISLAB.NS",
+        "UPL": "UPL.NS", "SBI Life Insurance": "SBILIFE.NS", "HDFC Life Insurance": "HDFCLIFE.NS",
+        "Tech Mahindra": "TECHM.NS", "Apollo Hospitals": "APOLLOHOSP.NS", "ONGC": "ONGC.NS",
+        "LTIMindtree": "LTIM.NS", "Bajaj Auto": "BAJAJ-AUTO.NS", "Tata Consumer Products": "TATACONSUM.NS"
     }
 
-# --- Streamlit UI ---
+@st.cache_data(ttl=900) # Cache data for 15 minutes
+def fetch_stock_data(ticker):
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period="1y")
+    if hist.empty:
+        return None, None
+    latest_price = hist['Close'].iloc[-1]
+    return latest_price, hist
 
-st.set_page_config(layout="wide")
-st.title("📈 Equity & Index Option Pricing Dashboard")
-st.markdown("This application calculates European option prices and their Greeks using a Binomial Tree model. You can fetch live data for any stock or index from Yahoo Finance.")
+def calculate_historical_volatility(hist_data):
+    if hist_data is None or len(hist_data) < 2:
+        return 0.0
+    log_returns = np.log(hist_data['Close'] / hist_data['Close'].shift(1))
+    return np.std(log_returns) * np.sqrt(252) # 252 trading days in a year
+
+
+# --- Streamlit UI ---
+st.set_page_config(layout="wide", page_title="Financial Decision-Making Dashboard")
+st.title("📈 Financial Decision-Making Dashboard")
+st.markdown("An advanced tool for option pricing, volatility analysis, and strategy visualization.")
 
 # --- Sidebar for User Inputs ---
-st.sidebar.header("⚙️ Option Parameters")
+with st.sidebar:
+    st.header("⚙️ Core Parameters")
+    
+    nifty50_tickers = get_nifty50_tickers()
+    selected_company_name = st.selectbox("Select Nifty 50 Company or Index", list(nifty50_tickers.keys()))
+    ticker_symbol = nifty50_tickers[selected_company_name]
+    
+    latest_price, hist_data = fetch_stock_data(ticker_symbol)
+    
+    if latest_price is None:
+        st.error(f"Could not fetch data for {ticker_symbol}. Please try another ticker.")
+        st.stop()
+        
+    st.success(f"**{selected_company_name}**\n\nLast Price: **₹{latest_price:.2f}**")
+    
+    S = st.number_input("Underlying Asset Price (S)", value=latest_price, format="%.2f")
+    K = st.number_input("Strike Price (K)", value=round(latest_price, -2), step=100.0, format="%.2f")
+    
+    today = date.today()
+    exp_date = st.date_input("Expiration Date", today + timedelta(days=30))
+    T = (exp_date - today).days / 365.0
+    st.write(f"Time to Expiration (T): {max(0, (exp_date - today).days)} days")
+    
+    r = st.slider("Risk-Free Interest Rate (r)", 0.0, 0.2, 0.071, 0.001, format="%.3f") # Approx Indian T-Bill rate
+    
+    hv = calculate_historical_volatility(hist_data)
+    v = st.slider("Volatility (v)", 0.01, 2.00, value=hv, step=0.01, format="%.2f", 
+                  help=f"Annualized historical volatility is {hv:.2f}. Adjust based on your market view.")
 
-# Ticker input and data fetching
-ticker_symbol = st.sidebar.text_input("Enter Ticker (e.g., ^NSEI for Nifty 50)", "^NSEI")
-if st.sidebar.button("Fetch Live Data"):
-    try:
-        ticker_data = yf.Ticker(ticker_symbol)
-        latest_price = ticker_data.history(period='1d')['Close'].iloc[0]
-        st.session_state.S = latest_price # Use session state to store price
-        st.sidebar.success(f"Fetched {ticker_symbol} price: ₹{latest_price:.2f}")
-    except Exception as e:
-        st.sidebar.error(f"Could not fetch data. Error: {e}")
 
-# Use session state to pre-fill or default
-S = st.sidebar.number_input("Underlying Asset Price (S)", value=st.session_state.get('S', 23500.0), step=100.0)
-K = st.sidebar.number_input("Strike Price (K)", value=23600.0, step=100.0)
+# --- Main Panel with Tabs ---
+tab1, tab2, tab3 = st.tabs(["🧮 Option Pricer & Greeks", "📊 Volatility Analysis", "📈 Payoff Diagram"])
 
-# User-friendly date input
-today = date.today()
-exp_date = st.sidebar.date_input("Expiration Date", today + timedelta(days=30))
-T = (exp_date - today).days / 365.0
-st.sidebar.write(f"Time to Expiration (T): {T*365:.0f} days ({T:.4f} years)")
+# TAB 1: Option Pricer
+with tab1:
+    st.header("Option Price Comparison")
+    
+    # Calculate prices from both models
+    bsm_call = black_scholes_pricer(S, K, T, r, v, 'call')
+    bsm_put = black_scholes_pricer(S, K, T, r, v, 'put')
+    binom_call = binomial_option_pricer(S, K, T, r, v, 100, 'call')
+    binom_put = binomial_option_pricer(S, K, T, r, v, 100, 'put')
 
-# Sliders for r and v
-r = st.sidebar.slider("Risk-Free Interest Rate (r)", 0.0, 0.2, 0.07, 0.005, format="%.3f")
-v = st.sidebar.slider("Volatility (v)", 0.01, 1.00, 0.20, 0.01, format="%.2f")
-N = st.sidebar.number_input("Number of Binomial Steps (N)", 50, 500, 100, step=10)
-
-
-# --- Main Panel for Results ---
-if T > 0:
-    st.header("📊 Calculated Option Prices & Greeks")
     col1, col2 = st.columns(2)
-
-    # Calculate Call Option
-    call_option = binomial_option_pricer(S, K, T, r, v, N, 'call')
     with col1:
         st.subheader("Call Option")
-        st.metric(label="Option Price", value=f"₹{call_option['price']:.2f}")
-        st.markdown(f"""
-        - **Delta:** `{call_option['delta']:.4f}`
-        - **Gamma:** `{call_option['gamma']:.4f}`
-        - **Theta (per day):** `₹{call_option['theta']:.2f}`
-        - **Vega (per 1% vol):** `₹{call_option['vega']:.2f}`
-        - **Rho (per 1% rate):** `₹{call_option['rho']:.2f}`
-        """)
+        st.metric("Black-Scholes Price", f"₹{bsm_call['price']:.2f}")
+        st.metric("Binomial Tree Price", f"₹{binom_call.get('price', 0):.2f}", 
+                  delta=f"{binom_call.get('price', 0) - bsm_call['price']:.2f} vs BSM", delta_color="off")
+        
+        with st.expander("View Call Greeks (from Black-Scholes)"):
+            st.markdown(f"""
+            - **Delta:** `{bsm_call['delta']:.4f}` (Option price change for ₹1 change in underlying)
+            - **Gamma:** `{bsm_call['gamma']:.4f}` (Delta's rate of change)
+            - **Theta:** `₹{bsm_call['theta']:.2f}` (Daily decay in price)
+            - **Vega:** `₹{bsm_call['vega']:.2f}` (Price change for 1% change in volatility)
+            - **Rho:** `₹{bsm_call['rho']:.2f}` (Price change for 1% change in interest rate)
+            """)
 
-    # Calculate Put Option
-    put_option = binomial_option_pricer(S, K, T, r, v, N, 'put')
     with col2:
         st.subheader("Put Option")
-        st.metric(label="Option Price", value=f"₹{put_option['price']:.2f}")
-        st.markdown(f"""
-        - **Delta:** `{put_option['delta']:.4f}`
-        - **Gamma:** `{put_option['gamma']:.4f}`
-        - **Theta (per day):** `₹{put_option['theta']:.2f}`
-        - **Vega (per 1% vol):** `₹{put_option['vega']:.2f}`
-        - **Rho (per 1% rate):** `₹{put_option['rho']:.2f}`
-        """)
-else:
-    st.warning("Please select a future expiration date.")
+        st.metric("Black-Scholes Price", f"₹{bsm_put['price']:.2f}")
+        st.metric("Binomial Tree Price", f"₹{binom_put.get('price', 0):.2f}", 
+                  delta=f"{binom_put.get('price', 0) - bsm_put['price']:.2f} vs BSM", delta_color="off")
 
-# --- Scenario Analysis Section ---
-st.header("🔬 Scenario Analysis")
-st.markdown("Analyze how the option price changes with different factors.")
+        with st.expander("View Put Greeks (from Black-Scholes)"):
+            st.markdown(f"""
+            - **Delta:** `{bsm_put['delta']:.4f}`
+            - **Gamma:** `{bsm_put['gamma']:.4f}`
+            - **Theta:** `₹{bsm_put['theta']:.2f}`
+            - **Vega:** `₹{bsm_put['vega']:.2f}`
+            - **Rho:** `₹{bsm_put['rho']:.2f}`
+            """)
 
-# 1. Analysis vs. Underlying Price
-st.subheader("Impact of Underlying Price")
-price_range = np.linspace(S * 0.9, S * 1.1, 20)
-call_prices_S = [binomial_option_pricer(p, K, T, r, v, N, 'call')['price'] for p in price_range]
-put_prices_S = [binomial_option_pricer(p, K, T, r, v, N, 'put')['price'] for p in price_range]
-price_df = pd.DataFrame({'Underlying Price': price_range, 'Call Price': call_prices_S, 'Put Price': put_prices_S}).set_index('Underlying Price')
-st.line_chart(price_df)
+# TAB 2: Volatility Analysis
+with tab2:
+    st.header(f"Volatility Analysis for {selected_company_name}")
+    st.metric("1-Year Annualized Historical Volatility", f"{hv:.2%}")
+    st.markdown("""
+    Historical Volatility measures the degree of price variation of the asset over the past year. 
+    It is a key input for option pricing, as higher volatility generally leads to higher option premiums.
+    """)
+    st.subheader("Historical Closing Price (1 Year)")
+    st.line_chart(hist_data['Close'])
 
-# 2. Analysis vs. Volatility
-st.subheader("Impact of Volatility")
-vol_range = np.linspace(max(0.05, v * 0.5), v * 2, 20)
-call_prices_v = [binomial_option_pricer(S, K, T, r, vol, N, 'call')['price'] for vol in vol_range]
-put_prices_v = [binomial_option_pricer(S, K, T, r, vol, N, 'put')['price'] for vol in vol_range]
-vol_df = pd.DataFrame({'Volatility': vol_range, 'Call Price': call_prices_v, 'Put Price': put_prices_v}).set_index('Volatility')
-st.line_chart(vol_df)
-
-# 3. Time Decay (Theta) Analysis
-st.subheader("Impact of Time to Expiration (Theta Decay)")
-days_range = np.arange(max(1, (exp_date - today).days), 0, -1)
-time_range_T = days_range / 365.0
-call_prices_t = [binomial_option_pricer(S, K, t, r, v, N, 'call')['price'] for t in time_range_T]
-put_prices_t = [binomial_option_pricer(S, K, t, r, v, N, 'put')['price'] for t in time_range_T]
-time_df = pd.DataFrame({'Days to Expiration': days_range, 'Call Price': call_prices_t, 'Put Price': put_prices_t}).set_index('Days to Expiration')
-st.line_chart(time_df)
+# TAB 3: Payoff Diagram
+with tab3:
+    st.header("Strategy Payoff at Expiration")
+    option_type_payoff = st.radio("Select Option Type for Payoff", ('Call', 'Put'), horizontal=True)
+    
+    # Use BSM price as the premium paid for the diagram
+    premium = bsm_call['price'] if option_type_payoff == 'Call' else bsm_put['price']
+    
+    price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
+    
+    if option_type_payoff == 'Call':
+        payoff = np.maximum(price_at_exp - K, 0) - premium
+        breakeven = K + premium
+    else: # Put
+        payoff = np.maximum(K - price_at_exp, 0) - premium
+        breakeven = K - premium
+        
+    payoff_df = pd.DataFrame({
+        'Underlying Price at Expiration': price_at_exp,
+        'Profit / Loss': payoff
+    }).set_index('Underlying Price at Expiration')
+    
+    st.line_chart(payoff_df)
+    
+    st.subheader("Payoff Profile Summary")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Breakeven Price", f"₹{breakeven:.2f}")
+    if option_type_payoff == 'Call':
+        col2.metric("Maximum Loss", f"₹{-premium:.2f} (Premium Paid)")
+        col3.metric("Maximum Profit", "Unlimited")
+    else:
+        col2.metric("Maximum Loss", f"₹{-premium:.2f} (Premium Paid)")
+        col3.metric("Maximum Profit", f"₹{K - premium:.2f}" if K > premium else "₹0.00")
