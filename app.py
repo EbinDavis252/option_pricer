@@ -159,7 +159,7 @@ with col1:
         st.metric("Binomial Tree Price", f"₹{binom_call.get('price', 0):.2f}", 
                   delta=f"{binom_call.get('price', 0) - bsm_call['price']:.2f} vs BSM", delta_color="off")
         
-        with st.expander("View Call Greeks (from Black-Scholes)"):
+        with st.expander("View Greeks (Industry Standard: Black-Scholes)"):
             st.markdown(f"""
             - **Delta:** `{bsm_call['delta']:.4f}` (Option price change for ₹1 change in underlying)
             - **Gamma:** `{bsm_call['gamma']:.4f}` (Delta's rate of change)
@@ -175,7 +175,7 @@ with col2:
         st.metric("Binomial Tree Price", f"₹{binom_put.get('price', 0):.2f}", 
                   delta=f"{binom_put.get('price', 0) - bsm_put['price']:.2f} vs BSM", delta_color="off")
 
-        with st.expander("View Put Greeks (from Black-Scholes)"):
+        with st.expander("View Greeks (Industry Standard: Black-Scholes)"):
             st.markdown(f"""
             - **Delta:** `{bsm_put['delta']:.4f}`
             - **Gamma:** `{bsm_put['gamma']:.4f}`
@@ -193,9 +193,18 @@ col1, col2 = st.columns(2)
 with col1:
     with st.container(border=True):
         st.markdown("#### Strategy Payoff at Expiration")
-        option_type_payoff = st.radio("Select Option", ('Call', 'Put'), horizontal=True, key="payoff_choice")
         
-        premium = bsm_call['price'] if option_type_payoff == 'Call' else bsm_put['price']
+        c1_payoff, c2_payoff = st.columns(2)
+        with c1_payoff:
+            option_type_payoff = st.radio("Select Option", ('Call', 'Put'), horizontal=True, key="payoff_choice")
+        with c2_payoff:
+            model_for_payoff = st.radio("Use premium from:", ('Black-Scholes', 'Binomial'), horizontal=True, key="model_choice")
+
+        if model_for_payoff == 'Black-Scholes':
+            premium = bsm_call['price'] if option_type_payoff == 'Call' else bsm_put['price']
+        else: # Binomial
+            premium = binom_call.get('price', 0) if option_type_payoff == 'Call' else binom_put.get('price', 0)
+        
         price_at_exp = np.linspace(S * 0.8, S * 1.2, 100)
         
         if option_type_payoff == 'Call':
