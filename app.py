@@ -152,7 +152,7 @@ with st.sidebar:
         
     st.markdown(f"### {info.get('longName', selected_company_name)}")
 
-    with st.expander("View Market Data", expanded=True):
+    with st.expander("View Market Data", expanded=False):
         price_change = latest_price - info.get('previousClose', latest_price)
         st.metric("Last Market Price", f"₹{latest_price:.2f}", f"{price_change:.2f} (₹)")
         col1, col2 = st.columns(2)
