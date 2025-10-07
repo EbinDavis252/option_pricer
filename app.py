@@ -263,7 +263,10 @@ with st.container(border=True):
                         height=600, 
                         directed=True, 
                         physics=False, 
-                        hierarchical={'enabled': True, 'sortMethod': 'directed', 'levelSeparation': 250})
+                        hierarchical={'enabled': True, 
+                                      'sortMethod': 'directed', 
+                                      'levelSeparation': 300, 
+                                      'direction': 'LR'})
         
         agraph(nodes=nodes, edges=edges, config=config)
 
