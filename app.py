@@ -358,6 +358,13 @@ with st.container(border=True):
         p_viz = -1 # Invalid p to prevent calculation
     
     if 0 < p_viz < 1 and T > 0:
+        st.markdown("---")
+        st.markdown("""
+        **How to Read This Tree:**
+        - **Movement:** The tree flows from left (today) to right (expiration). Each column of nodes is one step forward in time.
+        - **Nodes:** Each circle shows the potential asset price and the corresponding theoretical option value at that point.
+        - **Valuation:** The model finds the final option values on the far right and works backward to calculate today's value on the far left.
+        """)
         asset_tree_viz, option_tree_viz = generate_binomial_tree_data(S, K, T, r, v, N_viz, option_type_viz)
         fig = create_tree_visualization(asset_tree_viz, option_tree_viz, N_viz)
         st.plotly_chart(fig, use_container_width=True)
@@ -368,7 +375,7 @@ with st.container(border=True):
         st.error("Arbitrage Opportunity Detected: The model cannot be built with these parameters. Please adjust Volatility or the Risk-Free Rate.")
         
     st.markdown("---")
-    with st.expander("Learn about the Valuation Process"):
+    with st.expander("Learn More about the Valuation Process"):
         st.markdown("""
         The Binomial Model is a powerful tool that breaks down the time to expiration into a number of discrete time steps. Here’s how it works:
         
