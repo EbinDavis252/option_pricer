@@ -87,7 +87,7 @@ def get_nifty50_tickers():
         "Kotak Mahindra Bank": "KOTAKBANK.NS", "Axis Bank": "AXISBANK.NS", "NTPC": "NTPC.NS", "Maruti Suzuki": "MARUTI.NS",
         "Sun Pharmaceutical": "SUNPHARMA.NS", "Tata Motors": "TATAMOTORS.NS", "Tata Steel": "TATASTEEL.NS", "Power Grid Corporation": "POWERGRID.NS",
         "Titan Company": "TITAN.NS", "Asian Paints": "ASIANPAINT.NS", "UltraTech Cement": "ULTRACEMCO.NS", "Wipro": "WIPRO.NS",
-        "Adani Enterprises": "ADANIENT.NS", "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJAJFINSV.NS",
+        "Adani Enterprises": "ADANIENT.NS", "Mahindra & Mahindra": "M&M.NS", "JSW Steel": "JSWSTEEL.NS", "Bajaj Finserv": "BAJFINSV.NS",
         "HCL Technologies": "HCLTECH.NS", "Nestle India": "NESTLEIND.NS", "Grasim Industries": "GRASIM.NS", "Cipla": "CIPLA.NS",
         "Dr. Reddy's Laboratories": "DRREDDY.NS", "Adani Ports": "ADANIPORTS.NS", "Britannia Industries": "BRITANNIA.NS",
         "Hindalco Industries": "HINDALCO.NS", "Eicher Motors": "EICHERMOT.NS", "Coal India": "COALINDIA.NS", "Hero MotoCorp": "HEROMOTOCO.NS",
@@ -129,18 +129,25 @@ def generate_binomial_tree_data(S, K, T, r, v, N, option_type):
     return asset_tree, option_tree
 
 def create_tree_visualization(asset_tree, option_tree, N):
-    """Generates a Plotly figure for the binomial tree."""
+    """Generates a Plotly figure for the binomial tree with improved spacing."""
     edge_x, edge_y = [], []
     node_x, node_y, node_text = [], [], []
 
-    # Calculate y-positions for the nodes at each time step
-    y_positions = [np.linspace(-(2**i-1), (2**i-1), i+1) for i in range(N + 1)]
+    # New logic for cleaner, more balanced node spacing
+    y_positions = np.zeros((N + 1, N + 1))
+    # Set y-positions for the final time step to be evenly spaced across a wide range
+    y_positions[:, N] = np.linspace(-(2**(N-1)), 2**(N-1), N + 1)
+    
+    # Work backwards to set parent node positions as the average of their children
+    for i in range(N - 1, -1, -1):
+        for j in range(i + 1):
+            y_positions[j, i] = (y_positions[j, i + 1] + y_positions[j + 1, i + 1]) / 2
 
     for i in range(N + 1):
         for j in range(i + 1):
-            # Node positions
+            # Node positions from pre-calculated matrix
             x_pos = i
-            y_pos = y_positions[i][j]
+            y_pos = y_positions[j, i]
             node_x.append(x_pos)
             node_y.append(y_pos)
             node_text.append(f"Asset: ₹{asset_tree[j, i]:.2f}<br>Option: ₹{option_tree[j, i]:.2f}")
@@ -149,11 +156,10 @@ def create_tree_visualization(asset_tree, option_tree, N):
             if i < N:
                 # Edge to upper child
                 edge_x.extend([x_pos, x_pos + 1, None])
-                edge_y.extend([y_pos, y_positions[i+1][j], None])
+                edge_y.extend([y_pos, y_positions[j, i + 1], None])
                 # Edge to lower child
                 edge_x.extend([x_pos, x_pos + 1, None])
-                edge_y.extend([y_pos, y_positions[i+1][j+1], None])
-
+                edge_y.extend([y_pos, y_positions[j + 1, i + 1], None])
 
     fig = go.Figure()
 
